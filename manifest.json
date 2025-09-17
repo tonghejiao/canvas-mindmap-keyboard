@@ -1,0 +1,9 @@
+{
+  "id": "canvas-mindmap-keyboard",
+  "name": "canvas-mindmap-keyboard",
+  "version": "1.0.0",
+  "minAppVersion": "0.0.1",
+  "description": "MindMap for Obsidian Canvas: Tab/Enter/Arrow driven, auto-layout and auto-size.",
+  "author": "tonghejioa",
+  "isDesktopOnly": false
+}
