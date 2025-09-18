@@ -1,9 +1,17 @@
-import { Plugin, WorkspaceLeaf, Notice } from 'obsidian';
+import { Plugin } from 'obsidian';
 import { around } from "monkey-around";
 import { DEFAULT_SETTINGS, MindMapSettings, MindMapSettingTab } from "mindMapSettings";
 
 function generateId() {
   return Math.random().toString(36).substr(2, 10);
+}
+
+interface CanvasNode {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 declare module 'obsidian' {
@@ -83,6 +91,8 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private createChildNode(canvas: any) {
+    if (!this.verifyCanvasLayout()) return;
+
     if (!canvas) return;
 
     if (canvas.selection.size !== 1) return;
@@ -127,15 +137,17 @@ export default class CanvasMindmap extends Plugin {
     canvas.requestFrame();
     canvas.requestSave();
 
-    this.relayoutCanvas(canvas)
     setTimeout(() => {
       const createdNode = canvas.nodes.get(childId);
       createdNode.startEditing();
       canvas.zoomToSelection();
+      this.relayoutCanvas(canvas)
     }, 100);
   }
 
   private createSiblingNode(canvas: any) {
+    if (!this.verifyCanvasLayout()) return;
+
     if (!canvas) return;
 
     if (canvas.selection.size === 0){
@@ -203,7 +215,24 @@ export default class CanvasMindmap extends Plugin {
     }, 100);
   }
 
+  private startEditingNode(canvas: any) {
+    if (!this.verifyCanvasLayout()) return;
+    if (!canvas) return;
+
+    const selection = canvas.selection;
+    if (selection.size !== 1) return;
+    const node = selection.entries().next().value[1];
+
+    if (node?.label || node?.url) return;
+
+    if (node.isEditing) return;
+    node.startEditing();
+    canvas.zoomToSelection();
+  }
+
   private deleteNode(canvas: any) {
+    if (!this.verifyCanvasLayout()) return;
+
     if (!canvas) return;
 
     if (canvas.selection.size !== 1) return;
@@ -266,6 +295,8 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private navigate(canvas: any, direction: string) {
+    if (!this.verifyCanvasLayout()) return;
+
     if (!canvas) return;
 
     const focusedNodeId = this.getFocusedNodeId(canvas);
@@ -325,7 +356,7 @@ export default class CanvasMindmap extends Plugin {
 
   private relayoutCanvas(canvas: any) {
     const data = canvas.getData();
-    const nodeMap = new Map((data.nodes as any[]).map((n: any) => [n.id, n]));
+    const nodeMap = new Map((data.nodes as CanvasNode[]).map((n: any) => [n.id, n]));
     const edges = data.edges;
 
     // 构建父子关系
@@ -450,6 +481,13 @@ export default class CanvasMindmap extends Plugin {
     return heightMap;
   }
 
+  verifyCanvasLayout(): boolean {
+    const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
+    // @ts-ignore
+    if (!canvasView?.file?.name?.includes(this.settings.condition.fileNameInclude)) return false;
+    return true;
+  }
+
   patchCanvas() {
     // Patch all existing Canvas leaves
     const patchCanvasKeys = () => {
@@ -485,15 +523,7 @@ export default class CanvasMindmap extends Plugin {
             });
 
             this.scope.register([], ' ', async (ev: KeyboardEvent) => {
-              const selection = this.canvas.selection;
-              if (selection.size !== 1) return;
-              const node = selection.entries().next().value[1];
-
-              if (node?.label || node?.url) return;
-
-              if (node.isEditing) return;
-              node.startEditing();
-              this.canvas.zoomToSelection();
+              self.startEditingNode(this.canvas);
             });
 
             this.scope.register([], "Backspace", async (ev: KeyboardEvent) => {
@@ -536,6 +566,7 @@ export default class CanvasMindmap extends Plugin {
           function (e: any) {
             next.call(this, e);
             if (e) {
+              if (!self.verifyCanvasLayout()) return;
               this.node?.canvas.wrapperEl.focus();
               this.node?.setIsEditing(false);
               if(this.node?.text?.length > 0){

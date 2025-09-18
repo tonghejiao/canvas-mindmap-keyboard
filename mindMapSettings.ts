@@ -2,6 +2,9 @@ import { App, debounce, Platform, PluginSettingTab, Setting } from "obsidian";
 import CanvasMindMap from "main";
 
 export interface MindMapSettings {
+	condition: {
+		fileNameInclude: string; // 文件名包含
+	},
 	creatNode: {
 		width: number;
 		height: number;		
@@ -14,6 +17,9 @@ export interface MindMapSettings {
 
 
 export const DEFAULT_SETTINGS: MindMapSettings = {
+	condition: {
+		fileNameInclude: 'mindmap', // 文件名包含
+	},
 	creatNode: {
 		width: 300,
 		height: 100,
@@ -38,6 +44,19 @@ export class MindMapSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		containerEl.createEl('h1', {text: 'Canvas MindMap keyboard Settings'});
+
+		containerEl.createEl('h2', { text: 'condition' });
+		new Setting(containerEl)
+			.setName('filename include')
+			.setDesc('Only files with names containing this string will have the mind map feature enabled.')
+			.addText(text => text
+				.setPlaceholder('filename include')
+				.setValue(this.plugin.settings.condition.fileNameInclude)
+				.onChange(debounce(async (value) => {
+					this.plugin.settings.condition.fileNameInclude = value;
+					await this.plugin.saveSettings();
+				}, 500))
+			);
 
 		containerEl.createEl('h2', { text: 'createNode' });
 		new Setting(containerEl)
