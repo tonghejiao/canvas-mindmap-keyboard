@@ -6,7 +6,7 @@ Thank you for this warehouse: [https://github.com/Quorafind/Obsidian-Canvas-Mind
 
 To be honest, if the author of this warehouse hadn't updated the plug-in for 1 year, I wouldn't have been too lazy to develop this plug-in.
 
-## feature
+## Feature
 | Name                                                 | Introduce                                                    | Use the premise                       |
 | ---------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------- |
 | Create a root node                                   | Press the `enter` key                                        | When no node is selected              |
@@ -23,7 +23,7 @@ To be honest, if the author of this warehouse hadn't updated the plug-in for 1 y
 | Automatic layout                                     |                                                              | When creating and deleting nodes      |
 | The plug-in takes effect according to the file name. | In order to avoid functions such as automatic layout affecting the existing canvas file, it will only take effect when the canvas file name contains the `mindmap` string, which can be modified in the settings. |                                       |
 
-## ## Notes
+## Notes
 
 - The name of the modified key: Ctrl Shift Alt Mod (mod is cmd in macos, and ctrl in other systems)
 - Special key name: ArrowUp ArrowDown ArrowLeft ArrowRight
