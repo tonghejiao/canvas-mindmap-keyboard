@@ -13,7 +13,8 @@ To be honest, if the author of this warehouse hadn't updated the plug-in for 1 y
 | Create sub-nodes                                     | Press the `tab` key                                          | When only one node is selected        |
 | Create a brother node                                | Press the `enter` key                                        | When only one node is selected        |
 | Delete nodes and subtrees                            | Press the `delete` key or `backspace` key                    | When only one node is selected        |
-| Move the focus node                                  | Press the `alt + arrow` key                                  | When only one node is selected        |
+| Move the focus node(free mode)                       | Press the `i/j/k/l` key<br />You can modify it in the settings. | When only one node is selected        |
+| Move the focus node(Normal mode)                     | macos: Press the `Ctrl + i/j/k/l` key<br />otheros: Press the `Alt + i/j/k/l` key<br />You can modify it in the settings. | When only one node is selected        |
 | The node enters the editing state                    | Press the `space` bar                                        | When only one node is selected        |
 | Automatically adjust the height of the node          |                                                              | When the node exits the editing state |
 | Automatic layout                                     |                                                              | When creating and deleting nodes      |
