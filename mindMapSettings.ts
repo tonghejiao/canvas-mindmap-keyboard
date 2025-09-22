@@ -19,6 +19,9 @@ export interface MindMapSettings {
 		horizontalGap: number; // 水平间距
 		verticalGap: number; // 垂直间距
 	},
+	nodeAutoResize: {
+		maxLine: number; // 节点自动增高的最大行数，超过后不再自动增高
+	}
 	hotkey: {
 		createChildNode: Hotkey,
 		createSiblingNodeOrRootNode: Hotkey,
@@ -55,6 +58,9 @@ export const DEFAULT_SETTINGS: MindMapSettings = {
 	layout: {
 		horizontalGap: 200, // 水平间距
 		verticalGap: 80,// 垂直间距
+	},
+	nodeAutoResize: {
+		maxLine: -1, // 节点自动增高的最大行数，超过后不再自动增高
 	},
 	hotkey: {
 		createChildNode: { modifiers: "", key: "Tab", enabled: true },
@@ -161,6 +167,22 @@ export class MindMapSettingTab extends PluginSettingTab {
 					const intValue = parseInt(value);
 					if (!isNaN(intValue) && intValue > 0) {
 						this.plugin.settings.layout.verticalGap = intValue;
+						await this.plugin.saveSettings();
+					}
+				}, 500))
+			);
+
+		containerEl.createEl('h2', { text: 'node auto resize' });
+		new Setting(containerEl)
+			.setName('max line')
+			.setDesc('The maximum number of lines for automatic height increase of nodes. If exceeded, the height will no longer increase automatically. Set to -1 for unlimited lines.')
+			.addText(text => text
+				.setPlaceholder('max line')
+				.setValue(this.plugin.settings.nodeAutoResize.maxLine.toString())
+				.onChange(debounce(async (value) => {
+					const intValue = parseInt(value);
+					if (!isNaN(intValue) && intValue >= -1) {
+						this.plugin.settings.nodeAutoResize.maxLine = intValue;
 						await this.plugin.saveSettings();
 					}
 				}, 500))

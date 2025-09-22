@@ -938,8 +938,7 @@ export default class CanvasMindmap extends Plugin {
               this.node?.setIsEditing(false);
               if (this.node?.text?.trim().length > 0) {
                 setTimeout(() => {
-                  const fakeEvent = new MouseEvent('dblclick', { bubbles: true });
-                  this.node?.onResizeDblclick(fakeEvent, 'bottom');
+                  self.resizeNode(this.node, "bottom");
                   self.relayoutCanvas(this.node?.canvas);
                 }, 100);
               }
@@ -961,5 +960,64 @@ export default class CanvasMindmap extends Plugin {
         this.registerEvent(evt);
       }
     });
+  }
+
+  resizeNode(node: any, n: string) {
+    var i = node.child;
+    var r = i.previewMode.renderer.previewEl;
+    if (!r.isShown())
+      return;
+    if ("top" === n || "bottom" === n) {
+      let maxHeight = null;
+      if (this.settings.nodeAutoResize.maxLine >= 0) {
+        const computed = window.getComputedStyle(r);
+        const lineHeight = parseFloat(computed.lineHeight);
+        maxHeight = lineHeight * this.settings.nodeAutoResize.maxLine;
+      }
+      
+      for (var o = 0; o < 10; o++) {
+        var a = r.clientHeight;
+        r.style.height = "1px";
+        var s = r.scrollHeight;
+        r.style.height = "";
+        var l = s - a + 1;
+        node.resize({
+          width: node.width,
+          height: maxHeight ? Math.min(maxHeight, node.height + l) : node.height + l
+        }),
+          node.render(),
+          node.canvas.requestSave()
+      }
+      return
+    }
+    r.style.height = "1px";
+    try {
+      var c = r.scrollHeight + .1
+        , u = node.width
+        , h = 0
+        , p = u;
+      for (o = 0; o < 10; o++) {
+        var d = Math.round((h + p) / 2);
+        if (node.resize({
+          width: d,
+          height: node.height
+        }),
+          node.render(),
+          r.scrollHeight > c ? h = d : p = d,
+          p - h < 1)
+          break
+      }
+      node.resize({
+        width: p,
+        height: node.height
+      }),
+        r.scrollHeight > c ? (node.resize({
+          width: u,
+          height: node.height
+        }),
+          node.render()) : node.canvas.requestSave()
+    } finally {
+      r.style.height = ""
+    }
   }
 }
