@@ -25,5 +25,5 @@ To be honest, if the author of this warehouse hadn't updated the plug-in for 1 y
 
 ## ## Notes
 
-- 修饰键的名称:  Ctrl Shift Alt Mod  (mod 在 macos 里是 cmd ,其他系统是ctrl)
-- 特殊的按键名称: ArrowUp ArrowDown ArrowLeft ArrowRight
+- The name of the modified key: Ctrl Shift Alt Mod (mod is cmd in macos, and ctrl in other systems)
+- Special key name: ArrowUp ArrowDown ArrowLeft ArrowRight
