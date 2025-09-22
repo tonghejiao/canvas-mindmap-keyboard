@@ -76,18 +76,11 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private getFocusedNodeId(canvas: any): string | null {
-    if (!canvas) return null;
-    const selectedNodes = Array.from(canvas.selection) as Array<{ id: string } | string>;
-    if (selectedNodes.length === 0) return null;
-
-    const node = selectedNodes[0];
-    return typeof node === 'string' ? node : node.id ?? null;
+    return canvas?.selection?.values().next().value?.id ?? null;
   }
 
   private isFocusedNodeEditing(canvas: any): boolean {
-    const parentNode = canvas.selection.entries().next().value[1];
-
-    return parentNode.isEditing;
+    return canvas.selection.values().next().value.isEditing;
   }
 
   private createChildNode(canvas: any) {
@@ -150,7 +143,7 @@ export default class CanvasMindmap extends Plugin {
 
     if (!canvas) return;
 
-    if (canvas.selection.size === 0){
+    if (canvas.selection.size === 0) {
       this.createRootNode(canvas);
       return
     }
@@ -220,8 +213,42 @@ export default class CanvasMindmap extends Plugin {
     if (!canvas) return;
 
     const selection = canvas.selection;
+    if (selection.size === 0) {
+      // 先尝试获取可视范围内的节点
+      let nodes = canvas.getViewportNodes();
+      // 如果画布中没有节点，则遍历所有节点
+      if (!nodes || nodes.length === 0) {
+        nodes = Array.from(canvas.nodes.values());
+      }
+      if (!nodes || nodes.length === 0) return;
+
+      const bbox = canvas.getViewportBBox();
+      const centerX = (bbox.minX + bbox.maxX) / 2;
+      const centerY = (bbox.minY + bbox.maxY) / 2;
+
+      let closestNode = null;
+      let minDist = Number.POSITIVE_INFINITY;
+
+      for (const n of nodes) {
+        const nodeCenterX = n.x + n.width / 2;
+        const nodeCenterY = n.y + n.height / 2;
+        const dx = nodeCenterX - centerX;
+        const dy = nodeCenterY - centerY;
+        const dist = dx * dx + dy * dy;
+        if (dist < minDist) {
+          minDist = dist;
+          closestNode = n;
+        }
+      }
+
+      if (!closestNode) return;
+      canvas.selectOnly(closestNode);
+      canvas.zoomToSelection();
+      return
+    }
+
     if (selection.size !== 1) return;
-    const node = selection.entries().next().value[1];
+    const node = selection.values().next().value;
 
     if (node?.label || node?.url) return;
 
@@ -287,30 +314,19 @@ export default class CanvasMindmap extends Plugin {
     }
   }
 
-  private getParentNode(canvas: any, nodeId: string) : any {
+  private getParentNode(canvas: any, nodeId: string): any {
     let selectedItem = canvas.nodes.get(nodeId);
     let incomingEdges = canvas.getEdgesForNode(selectedItem).filter((e: any) => e.to.node.id === selectedItem.id);
     let parentNode = incomingEdges.length > 0 ? incomingEdges[0].from.node : null;
     return parentNode
   }
 
-  private navigate(canvas: any, direction: string) {
-    if (!this.verifyCanvasLayout()) return;
-
-    if (!canvas) return;
-
-    const focusedNodeId = this.getFocusedNodeId(canvas);
-    if (!focusedNodeId) return;
-
+  private getNavigateNodebyFocusNode(canvas: any, selectedItem: any, direction: string): any {
     let targetNode: any = null;
-    let selectedItem = canvas.nodes.get(focusedNodeId);
-    // 找到父节点（通过 edges）
-    const parentNode = this.getParentNode(canvas, focusedNodeId);
-
     switch (direction) {
       case 'ArrowLeft':
         // 移动到父节点
-        targetNode = parentNode;
+        targetNode = this.getParentNode(canvas, selectedItem.id);
         break;
       case 'ArrowRight':
         // 找到子节点（通过 edges）
@@ -321,6 +337,7 @@ export default class CanvasMindmap extends Plugin {
         break;
       case 'ArrowUp':
       case 'ArrowDown':
+        const parentNode = this.getParentNode(canvas, selectedItem.id);
         if (!parentNode) {
           // Handle switching between root nodes
           // Gather all root nodes: all node IDs minus all child IDs from edges
@@ -347,12 +364,236 @@ export default class CanvasMindmap extends Plugin {
         if (direction === 'ArrowDown' && index < siblings.length - 1) targetNode = siblings[index + 1];
         break;
     }
+    return targetNode;
+  }
+
+  private navigate(canvas: any, direction: string) {
+    if (!this.verifyCanvasLayout()) return;
+
+    if (!canvas) return;
+
+    const selected = canvas.selection;
+    if (selected.size !== 1 || this.isFocusedNodeEditing(canvas)) return;
+    const currentNode = selected.values().next().value;
+
+    const targetNode = this.getNavigateNodebyFocusNode(canvas, currentNode, direction);
 
     if (targetNode) {
       canvas.selectOnly(targetNode);
       canvas.zoomToSelection();
     }
-  };
+  }
+
+  private navigateUtilEnd(canvas: any, direction: string) {
+    if (!this.verifyCanvasLayout()) return;
+
+    if (!canvas) return;
+
+    const selected = canvas.selection;
+    if (selected.size !== 1 || this.isFocusedNodeEditing(canvas)) return;
+    const currentNode = selected.values().next().value;
+
+    let lastNode = currentNode;
+    const visited = new Set<string>();
+    visited.add(currentNode.id);
+
+    while (true) {
+      const nextNode = this.getNavigateNodebyFocusNode(canvas, lastNode, direction);
+      // 如果没有下一个节点或出现环路，终止
+      if (!nextNode || visited.has(nextNode.id)) {
+        break;
+      }
+      visited.add(nextNode.id);
+      lastNode = nextNode;
+    }
+
+    // 移动到最后一个节点
+    if (lastNode && lastNode !== currentNode) {
+      canvas.selectOnly(lastNode);
+      canvas.zoomToSelection();
+    }
+  }
+
+  private getNextNodeInFreeMode(canvas: any, direction: string, currentNode: any): any {
+    const targetNode = this.getNavigateNodebyFocusNode(canvas, currentNode, direction);
+    if (targetNode) {
+      return targetNode;
+    }
+
+
+    if (direction === "ArrowRight") {
+      const parentNode = this.getParentNode(canvas, currentNode.id);
+      if (parentNode) {
+        // 获取父节点的所有子节点（兄弟）
+        const siblingEdges = canvas.getEdgesForNode(parentNode).filter((e: any) => e.from.node.id === parentNode.id);
+        const siblings = siblingEdges.map((e: any) => e.to.node).filter((n: any) => n.id !== currentNode.id);
+
+        // 遍历兄弟节点，检查是否有子节点
+        for (const sib of siblings) {
+          const outgoingEdges = canvas.getEdgesForNode(sib).filter((e: any) => e.from.node.id === sib.id);
+          const children = outgoingEdges.map((e: any) => e.to.node);
+          if (children.length > 0) {
+            // 找到第一个子节点直接返回
+            return children[0];
+          }
+        }
+      }
+    }
+
+    // 获取所有节点
+    const nodes = Array.from(canvas.nodes.values() as CanvasNode[]).filter((n: any) => n.id !== currentNode.id);
+    if (nodes.length === 0) return;
+
+    let candidates = nodes.filter((node: any) => {
+      switch (direction) {
+        case "ArrowUp":
+          // 节点底部必须在当前节点顶部以上
+          return node.y + node.height < currentNode.y;
+        case "ArrowDown":
+          // 节点顶部必须在当前节点底部以下
+          return node.y > currentNode.y + currentNode.height;
+        case "ArrowLeft":
+          // 节点右边必须在当前节点左边左侧
+          return node.x + node.width < currentNode.x;
+        case "ArrowRight":
+          // 节点左边必须在当前节点右边右侧
+          return node.x > currentNode.x + currentNode.width;
+        default:
+          return false;
+      }
+    });
+
+    if (candidates.length === 0) return;
+
+    let betweenNodes: any[] = [];
+    if (direction === "ArrowUp" || direction === "ArrowDown") {
+      // 额外过滤：获取位于当前节点左右边界(x)之间的节点
+      const xMin = currentNode.x;
+      const xMax = currentNode.x + currentNode.width;
+      betweenNodes = candidates.filter((node: any) => {
+        const nodeLeft = node.x;
+        const nodeRight = node.x + node.width;
+        // 判断节点是否有任意部分在两个 x 轴之间
+        return (nodeRight >= xMin && nodeLeft <= xMax);
+      });
+    } else if (direction === "ArrowLeft" || direction === "ArrowRight") {
+      // 额外过滤：获取位于当前节点上下边界(y)之间的节点
+      const yMin = currentNode.y;
+      const yMax = currentNode.y + currentNode.height;
+      betweenNodes = candidates.filter((node: any) => {
+        const nodeTop = node.y;
+        const nodeBottom = node.y + node.height;
+        // 判断节点是否有任意部分在两个 y 轴之间
+        return (nodeBottom >= yMin && nodeTop <= yMax);
+      });
+    }
+
+    // 1. 遍历filteredCandidates，使用closestSegmentLength找距离最小的节点
+    let bestNode: any = null;
+    let minSegmentDist = Number.POSITIVE_INFINITY;
+    for (const node of betweenNodes) {
+      const segDist = this.closestSegmentLength(currentNode, node);
+      if (segDist < minSegmentDist) {
+        minSegmentDist = segDist;
+        bestNode = node;
+      }
+    }
+
+    // 2. 如果没有bestNode，遍历所有candidates，计算区间距离（x区间或y区间），找最小者
+    if (!bestNode) {
+      let minRangeDist = Number.POSITIVE_INFINITY;
+      let bestRangeNode = null;
+      if (direction === "ArrowUp" || direction === "ArrowDown") {
+        const x1 = currentNode.x;
+        const x2 = currentNode.x + currentNode.width;
+        for (const node of candidates) {
+          const nx1 = node.x;
+          const nx2 = node.x + node.width;
+          // 计算点到区间距离
+          let dist = 0;
+          if (x2 < nx1) {
+            dist = nx1 - x2;
+          } else if (x1 > nx2) {
+            dist = x1 - nx2;
+          } else {
+            dist = 0;
+          }
+          if (dist < minRangeDist) {
+            minRangeDist = dist;
+            bestRangeNode = node;
+          }
+        }
+      } else if (direction === "ArrowLeft" || direction === "ArrowRight") {
+        const y1 = currentNode.y;
+        const y2 = currentNode.y + currentNode.height;
+        for (const node of candidates) {
+          const ny1 = node.y;
+          const ny2 = node.y + node.height;
+          // 计算点到区间距离
+          let dist = 0;
+          if (y2 < ny1) {
+            dist = ny1 - y2;
+          } else if (y1 > ny2) {
+            dist = y1 - ny2;
+          } else {
+            dist = 0;
+          }
+          if (dist < minRangeDist) {
+            minRangeDist = dist;
+            bestRangeNode = node;
+          }
+        }
+      }
+      if (bestRangeNode) bestNode = bestRangeNode;
+    }
+
+    return bestNode;
+  }
+
+  private freeNavigate(canvas: any, direction: string) {
+    if (!this.verifyCanvasLayout()) return;
+    if (!canvas) return;
+
+    const selected = canvas.selection;
+    if (selected.size !== 1 || this.isFocusedNodeEditing(canvas)) return;
+
+    const currentNode = selected.values().next().value;
+
+    const bestNode = this.getNextNodeInFreeMode(canvas, direction, currentNode);
+    if (!bestNode) return;
+    canvas.selectOnly(bestNode);
+    canvas.zoomToSelection();
+  }
+
+  private freeNavigateUtilEnd(canvas: any, direction: string) {
+    if (!this.verifyCanvasLayout()) return;
+    if (!canvas) return;
+
+    const selected = canvas.selection;
+    if (selected.size !== 1 || this.isFocusedNodeEditing(canvas)) return;
+
+    const currentNode = selected.values().next().value;
+
+    let lastNode = currentNode;
+    const visited = new Set<string>();
+    visited.add(currentNode.id);
+
+    while (true) {
+      const nextNode = this.getNextNodeInFreeMode(canvas, direction, lastNode);
+      // 如果没有下一个节点或出现环路，终止
+      if (!nextNode || visited.has(nextNode.id)) {
+        break;
+      }
+      visited.add(nextNode.id);
+      lastNode = nextNode;
+    }
+
+    // 移动到最后一个节点
+    if (lastNode && lastNode !== currentNode) {
+      canvas.selectOnly(lastNode);
+      canvas.zoomToSelection();
+    }
+  }
 
   private relayoutCanvas(canvas: any) {
     const data = canvas.getData();
@@ -488,6 +729,21 @@ export default class CanvasMindmap extends Plugin {
     return true;
   }
 
+  closestSegmentLength(rectA: CanvasNode, rectB: CanvasNode): number {
+    const aLeft = rectA.x, aRight = rectA.x + rectA.width;
+    const aTop = rectA.y, aBottom = rectA.y + rectA.height;
+
+    const bLeft = rectB.x, bRight = rectB.x + rectB.width;
+    const bTop = rectB.y, bBottom = rectB.y + rectB.height;
+
+    // 水平和垂直距离：如果矩形相交/重叠则距离为 0
+    const dx = Math.max(bLeft - aRight, aLeft - bRight, 0);
+    const dy = Math.max(bTop - aBottom, aTop - bBottom, 0);
+
+    // 直接返回两矩形最近距离
+    return dx * dx + dy * dy;
+  }
+
   patchCanvas() {
     // Patch all existing Canvas leaves
     const patchCanvasKeys = () => {
@@ -501,34 +757,145 @@ export default class CanvasMindmap extends Plugin {
       const canvasViewunistaller = around(canvasView.constructor.prototype, {
         onOpen: (next) =>
           async function () {
-            this.scope.register(["Alt"], "ArrowUp", () => {
-              self.navigate(this.canvas, "ArrowUp");
-            });
-            this.scope.register(["Alt"], "ArrowDown", () => {
-              self.navigate(this.canvas, "ArrowDown");
-            });
-            this.scope.register(["Alt"], "ArrowLeft", () => {
-              self.navigate(this.canvas, "ArrowLeft");
-            });
-            this.scope.register(["Alt"], "ArrowRight", () => {
-              self.navigate(this.canvas, "ArrowRight");
-            });
+            if (self.settings.hotkey.createSiblingNodeOrRootNode.key !== "" && self.settings.hotkey.createSiblingNodeOrRootNode.enabled) {
+              this.scope.register(self.settings.hotkey.createSiblingNodeOrRootNode.modifiers.split("+"),
+                self.settings.hotkey.createSiblingNodeOrRootNode.key, async () => {
+                  self.createSiblingNode(this.canvas);
+                });
+            }
 
-            this.scope.register([], "Enter", async () => {
-              self.createSiblingNode(this.canvas);
-            });
+            if (self.settings.hotkey.createChildNode.key !== "" && self.settings.hotkey.createChildNode.enabled) {
+              this.scope.register(self.settings.hotkey.createChildNode.modifiers.split("+"),
+                self.settings.hotkey.createChildNode.key, async (ev: KeyboardEvent) => {
+                  self.createChildNode(this.canvas);
+                });
+            }
 
-            this.scope.register([], "Tab", async (ev: KeyboardEvent) => {
-              self.createChildNode(this.canvas);
-            });
+            if (self.settings.hotkey.editNodeOrSelectionNode.key !== "" && self.settings.hotkey.editNodeOrSelectionNode.enabled) {
+              this.scope.register(self.settings.hotkey.editNodeOrSelectionNode.modifiers.split("+"),
+                self.settings.hotkey.editNodeOrSelectionNode.key, async (ev: KeyboardEvent) => {
+                  self.startEditingNode(this.canvas);
+                });
+            }
 
-            this.scope.register([], ' ', async (ev: KeyboardEvent) => {
-              self.startEditingNode(this.canvas);
-            });
+            if (self.settings.hotkey.deleteNode.key !== "" && self.settings.hotkey.deleteNode.enabled) {
+              this.scope.register(self.settings.hotkey.deleteNode.modifiers.split("+"),
+                self.settings.hotkey.deleteNode.key, async (ev: KeyboardEvent) => {
+                  self.deleteNode(this.canvas);
+                });
+            }
 
-            this.scope.register([], "Backspace", async (ev: KeyboardEvent) => {
-              self.deleteNode(this.canvas);
-            });
+            if (self.settings.hotkey.freeNavigateUp.key !== "" && self.settings.hotkey.freeNavigateUp.enabled) {
+              this.scope.register(self.settings.hotkey.freeNavigateUp.modifiers.split("+"),
+                self.settings.hotkey.freeNavigateUp.key, () => {
+                  self.freeNavigate(this.canvas, "ArrowUp");
+                });
+            }
+
+            if (self.settings.hotkey.freeNavigateDown.key !== "" && self.settings.hotkey.freeNavigateDown.enabled) {
+              this.scope.register(self.settings.hotkey.freeNavigateDown.modifiers.split("+"),
+                self.settings.hotkey.freeNavigateDown.key, () => {
+                  self.freeNavigate(this.canvas, "ArrowDown");
+                });
+            }
+
+            if (self.settings.hotkey.freeNavigateLeft.key !== "" && self.settings.hotkey.freeNavigateLeft.enabled) {
+              this.scope.register(self.settings.hotkey.freeNavigateLeft.modifiers.split("+"),
+                self.settings.hotkey.freeNavigateLeft.key, () => {
+                  self.freeNavigate(this.canvas, "ArrowLeft");
+                });
+            }
+
+            if (self.settings.hotkey.freeNavigateRight.key !== "" && self.settings.hotkey.freeNavigateRight.enabled) {
+              this.scope.register(self.settings.hotkey.freeNavigateRight.modifiers.split("+"),
+                self.settings.hotkey.freeNavigateRight.key, () => {
+                  self.freeNavigate(this.canvas, "ArrowRight");
+                });
+            }
+
+            if (self.settings.hotkey.freeNavigateUpUntilEnd.key !== "" && self.settings.hotkey.freeNavigateUpUntilEnd.enabled) {
+              this.scope.register(self.settings.hotkey.freeNavigateUpUntilEnd.modifiers.split("+"),
+                self.settings.hotkey.freeNavigateUpUntilEnd.key, () => {
+                  self.freeNavigateUtilEnd(this.canvas, "ArrowUp");
+                });
+            }
+
+            if (self.settings.hotkey.freeNavigateDownUntilEnd.key !== "" && self.settings.hotkey.freeNavigateDownUntilEnd.enabled) {
+              this.scope.register(self.settings.hotkey.freeNavigateDownUntilEnd.modifiers.split("+"),
+                self.settings.hotkey.freeNavigateDownUntilEnd.key, () => {
+                  self.freeNavigateUtilEnd(this.canvas, "ArrowDown");
+                });
+            }
+
+            if (self.settings.hotkey.freeNavigateLeftUntilEnd.key !== "" && self.settings.hotkey.freeNavigateLeftUntilEnd.enabled) {
+              this.scope.register(self.settings.hotkey.freeNavigateLeftUntilEnd.modifiers.split("+"),
+                self.settings.hotkey.freeNavigateLeftUntilEnd.key, () => {
+                  self.freeNavigateUtilEnd(this.canvas, "ArrowLeft");
+                });
+            }
+
+            if (self.settings.hotkey.freeNavigateRightUntilEnd.key !== "" && self.settings.hotkey.freeNavigateRightUntilEnd.enabled) {
+              this.scope.register(self.settings.hotkey.freeNavigateRightUntilEnd.modifiers.split("+"),
+                self.settings.hotkey.freeNavigateRightUntilEnd.key, () => {
+                  self.freeNavigateUtilEnd(this.canvas, "ArrowRight");
+                });
+            }
+
+            if (self.settings.hotkey.navigateUp.key !== "" && self.settings.hotkey.navigateUp.enabled) {
+              this.scope.register(self.settings.hotkey.navigateUp.modifiers.split("+"),
+                self.settings.hotkey.navigateUp.key, () => {
+                  self.navigate(this.canvas, "ArrowUp");
+                });
+            }
+
+            if (self.settings.hotkey.navigateDown.key !== "" && self.settings.hotkey.navigateDown.enabled) {
+              this.scope.register(self.settings.hotkey.navigateDown.modifiers.split("+"),
+                self.settings.hotkey.navigateDown.key, () => {
+                  self.navigate(this.canvas, "ArrowDown");
+                });
+            }
+
+            if (self.settings.hotkey.navigateLeft.key !== "" && self.settings.hotkey.navigateLeft.enabled) {
+              this.scope.register(self.settings.hotkey.navigateLeft.modifiers.split("+"),
+                self.settings.hotkey.navigateLeft.key, () => {
+                  self.navigate(this.canvas, "ArrowLeft");
+                });
+            }
+
+            if (self.settings.hotkey.navigateRight.key !== "" && self.settings.hotkey.navigateRight.enabled) {
+              this.scope.register(self.settings.hotkey.navigateRight.modifiers.split("+"),
+                self.settings.hotkey.navigateRight.key, () => {
+                  self.navigate(this.canvas, "ArrowRight");
+                });
+            }
+
+            if (self.settings.hotkey.navigateUpUntilEnd.key !== "" && self.settings.hotkey.navigateUpUntilEnd.enabled) {
+              this.scope.register(self.settings.hotkey.navigateUpUntilEnd.modifiers.split("+"),
+                self.settings.hotkey.navigateUpUntilEnd.key, () => {
+                  self.navigateUtilEnd(this.canvas, "ArrowUp");
+                });
+            }
+
+            if (self.settings.hotkey.navigateDownUntilEnd.key !== "" && self.settings.hotkey.navigateDownUntilEnd.enabled) {
+              this.scope.register(self.settings.hotkey.navigateDownUntilEnd.modifiers.split("+"),
+                self.settings.hotkey.navigateDownUntilEnd.key, () => {
+                  self.navigateUtilEnd(this.canvas, "ArrowDown");
+                });
+            }
+
+            if (self.settings.hotkey.navigateLeftUntilEnd.key !== "" && self.settings.hotkey.navigateLeftUntilEnd.enabled) {
+              this.scope.register(self.settings.hotkey.navigateLeftUntilEnd.modifiers.split("+"),
+                self.settings.hotkey.navigateLeftUntilEnd.key, () => {
+                  self.navigateUtilEnd(this.canvas, "ArrowLeft");
+                });
+            }
+
+            if (self.settings.hotkey.navigateRightUntilEnd.key !== "" && self.settings.hotkey.navigateRightUntilEnd.enabled) {
+              this.scope.register(self.settings.hotkey.navigateRightUntilEnd.modifiers.split("+"),
+                self.settings.hotkey.navigateRightUntilEnd.key, () => {
+                  self.navigateUtilEnd(this.canvas, "ArrowRight");
+                });
+            }
 
             return next.call(this);
           }
@@ -569,13 +936,13 @@ export default class CanvasMindmap extends Plugin {
               if (!self.verifyCanvasLayout()) return;
               this.node?.canvas.wrapperEl.focus();
               this.node?.setIsEditing(false);
-              if(this.node?.text?.length > 0){
+              if (this.node?.text?.trim().length > 0) {
                 setTimeout(() => {
                   const fakeEvent = new MouseEvent('dblclick', { bubbles: true });
                   this.node?.onResizeDblclick(fakeEvent, 'bottom');
                   self.relayoutCanvas(this.node?.canvas);
                 }, 100);
-              } 
+              }
             }
           },
       });
