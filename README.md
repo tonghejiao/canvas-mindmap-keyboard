@@ -23,3 +23,7 @@ To be honest, if the author of this warehouse hadn't updated the plug-in for 1 y
 | Automatic layout                                     |                                                              | When creating and deleting nodes      |
 | The plug-in takes effect according to the file name. | In order to avoid functions such as automatic layout affecting the existing canvas file, it will only take effect when the canvas file name contains the `mindmap` string, which can be modified in the settings. |                                       |
 
+## ## Notes
+
+- 修饰键的名称:  Ctrl Shift Alt Mod  (mod 在 macos 里是 cmd ,其他系统是ctrl)
+- 特殊的按键名称: ArrowUp ArrowDown ArrowLeft ArrowRight
