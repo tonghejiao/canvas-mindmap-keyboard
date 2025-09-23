@@ -16,6 +16,7 @@ export interface MindMapSettings {
 		height: number;		
 	},
 	layout: {
+		automaticGlobalLayout: boolean; // 自动全局布局开关
 		horizontalGap: number; // 水平间距
 		verticalGap: number; // 垂直间距
 	},
@@ -56,6 +57,7 @@ export const DEFAULT_SETTINGS: MindMapSettings = {
 		height: 100,
 	},
 	layout: {
+		automaticGlobalLayout: true, // 自动全局布局开关
 		horizontalGap: 200, // 水平间距
 		verticalGap: 80,// 垂直间距
 	},
@@ -144,6 +146,17 @@ export class MindMapSettingTab extends PluginSettingTab {
 			);
 
 		containerEl.createEl('h2', { text: 'layout' });
+		new Setting(containerEl)
+			.setName('automatic global layout')
+			.setDesc('When enabled, the entire mind map will automatically arrange itself into a tree structure whenever a node is created or deleted.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.layout.automaticGlobalLayout)
+				.onChange(async (value) => {
+					this.plugin.settings.layout.automaticGlobalLayout = value;
+					await this.plugin.saveSettings();
+				})
+			);
+
 		new Setting(containerEl)
 			.setName('horizontal gap')
 			.addText(text => text
