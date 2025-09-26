@@ -1,6 +1,7 @@
-import { Plugin } from 'obsidian';
+import { Plugin, editorInfoField, debounce } from 'obsidian';
 import { around } from "monkey-around";
 import { DEFAULT_SETTINGS, MindMapSettings, MindMapSettingTab } from "mindMapSettings";
+import { EditorView, ViewUpdate } from "@codemirror/view";
 
 function generateId() {
   return Math.random().toString(36).substr(2, 10);
@@ -12,23 +13,58 @@ interface CanvasNode {
   y: number;
   width: number;
   height: number;
+  canvas: any
+  child: any
+  text: any
+  file: any
+
+  setIsEditing(arg0: boolean): unknown;
+  resize(arg0: { width: any; height: number; }): unknown;
 }
 
 declare module 'obsidian' {
   interface MarkdownFileInfo {
     containerEl: HTMLElement;
+    node: CanvasNode;
+  }
+
+  interface View {
+    canvas: any
+    file: any
   }
 }
+
+const updateNodeSize = (plugin: CanvasMindmap) => {
+  return EditorView.updateListener.of((v: ViewUpdate) => {
+    if (v.focusChanged && plugin.verifyCanvasLayout()) {
+      const editor = v.state.field(editorInfoField);
+      if (editor?.node) {
+        const height = (v.view as EditorView).contentHeight
+        editor.node.resize({
+          width: editor.node.width,
+          height: height + 20,
+        });
+        plugin.debounceSaveCanvas(editor.node.canvas);
+      }
+    }
+  });
+};
 
 export default class CanvasMindmap extends Plugin {
   settings: MindMapSettings;
   settingTab: MindMapSettingTab;
+
+  inRelayoutCanvasSet: Set<any> = new Set();
+  lastRelayoutTime: number = 0
 
   async onload() {
     await this.registerSettings();
     this.registerCommands();
     this.patchCanvas();
     this.patchMarkdownFileInfo();
+    this.patchMarkdownFileInfoFile();
+    this.patchUpdateSelection();
+    this.registerEditorExtension([updateNodeSize(this)]);
     console.log('Canvas MindMap Plugin loaded');
   }
 
@@ -46,33 +82,98 @@ export default class CanvasMindmap extends Plugin {
     await this.saveData(this.settings);
   }
 
-  registerCommands() {  
+  public debounceSaveCanvas = debounce((canvas: any) => {
+    canvas.requestSave();
+  }, 200);
+
+  public debounceRelayoutCanvas = (canvas: any) => {
+    const now  = Date.now()
+    if (now - this.lastRelayoutTime < 200) return 
+    this.lastRelayoutTime = now
+    this.relayoutCanvas(canvas)
+  };
+
+  public debounceRelayoutOneTree = (node: any) => {
+    const now = Date.now()
+    if (now - this.lastRelayoutTime < 200) return
+    this.lastRelayoutTime = now
+    this.relayoutOneTree(node)
+  };
+
+  registerCommands() {
     //全局重新布局
     this.addCommand({
-      id: 'canvas-mindmap-global-relayout',
-      name: 'canvas mindmap global relayout',
+      id: 'canvas-mindmap-keyboard-global-relayout',
+      name: 'global relayout',
       callback: () => {
-        if (!this.verifyCanvasLayout()) return;
         const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
-        // @ts-ignore
         const canvas = canvasView?.canvas;
         if (!canvas) return;
-        this.relayoutCanvas(canvas);
+        this.debounceRelayoutCanvas(canvas);
+      }
+    });
+    //调整所有节点的高度
+    this.addCommand({
+      id: 'canvas-mindmap-keyboard-global-resize',
+      name: 'global resize',
+      callback: () => {
+        const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
+        const canvas = canvasView?.canvas;
+        if (!canvas) return;
+        this.resizeAllNodes(canvas)
+      }
+    });
+
+    //调整所有节点的高度并重新布局
+    this.addCommand({
+      id: 'canvas-mindmap-keyboard-global-resize-and-relayout',
+      name: 'global resize and relayout',
+      callback: () => {
+        const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
+        const canvas = canvasView?.canvas;
+        if (!canvas) return;
+        this.resizeAllNodes(canvas)
+          .then(() => {
+            this.debounceRelayoutCanvas(canvas);
+          })
+      }
+    });
+
+    //调整选中的节点的所在的树重新布局
+    this.addCommand({
+      id: 'canvas-mindmap-keyboard-relayout-selected-tree',
+      name: 'relayout selected tree',
+      callback: () => {
+        const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
+        const canvas = canvasView?.canvas;
+        this.relayoutSelectedTree(canvas)
       }
     });
   }
 
   private createRootNode(canvas: any) {
+    const nodes = Array.from(canvas.nodes.values());
+    let minX = 0;
+    let maxY = 0;
+
+    if (nodes.length > 0) {
+      minX = Math.min(...nodes.map((n: any) => n.x));
+      maxY = Math.max(...nodes.map((n: any) => n.y + n.height));
+    }
+
+    maxY += this.settings.layout.verticalGap
+
+
     const node = canvas.createTextNode({
       pos: {
-        x: 0,
-        y: 0,
+        x: minX,
+        y: maxY,
         height: this.settings.creatNode.height,
         width: this.settings.creatNode.width
       },
       size: {
-        x: 0,
-        y: 0,
+        x: minX,
+        y: maxY,
         height: this.settings.creatNode.height,
         width: this.settings.creatNode.width
       },
@@ -84,14 +185,15 @@ export default class CanvasMindmap extends Plugin {
 
     canvas.addNode(node);
     canvas.requestSave();
-    if (this.settings.layout.automaticGlobalLayout) {
-      this.relayoutCanvas(canvas);
-    }
 
+    if (this.settings.layout.automaticGlobalLayout) {
+      this.debounceRelayoutCanvas(canvas);
+    }
+    canvas.selectOnly(node)
+    canvas.zoomToSelection();
     setTimeout(() => {
       node.startEditing();
-      canvas.zoomToSelection();
-    }, 0);
+    }, 100);
   }
 
   private getFocusedNodeId(canvas: any): string | null {
@@ -117,10 +219,32 @@ export default class CanvasMindmap extends Plugin {
     const data = canvas.getData();
     const nodes = data?.nodes || [];
     const edges = data?.edges || [];
-    const parentNode = nodes.find((n: any) => n.id === focusedNodeId);
-    if (!parentNode) return;
+    const currentNode = canvas.nodes.get(focusedNodeId);
+    if (!currentNode) return;
 
-    // Create new child node relative to parent
+    // Find all children of the current node using canvas.getEdgesForNode for efficiency
+    const outgoingEdges = canvas.getEdgesForNode(currentNode).filter((e: any) =>
+      (e.from?.node?.id ?? e.fromNode) === focusedNodeId
+    );
+    const childIds = outgoingEdges.map((e: any) => e.to?.node?.id ?? e.toNode);
+    let newY: number;
+    if (childIds.length > 0) {
+      // Find the maximum y+height among children
+      let maxBottom = -Infinity;
+      for (const childId of childIds) {
+        const childNode = canvas.nodes.get(childId);
+        if (childNode) {
+          const bottom = childNode.y + childNode.height;
+          if (bottom > maxBottom) maxBottom = bottom;
+        }
+      }
+      // If no children found in nodes (shouldn't happen), fallback to parent y
+      newY = (maxBottom > -Infinity ? maxBottom : currentNode.y);
+    } else {
+      // No children, place at parent's y
+      newY = currentNode.y;
+    }
+
     const childId = generateId();
     const newNode = {
       id: childId,
@@ -128,8 +252,8 @@ export default class CanvasMindmap extends Plugin {
       children: [],
       text: '',
       type: 'text',
-      x: parentNode.x + parentNode.width + this.settings.layout.horizontalGap,
-      y: parentNode.y,
+      x: currentNode.x + currentNode.width + this.settings.layout.horizontalGap,
+      y: newY,
       width: this.settings.creatNode.width,
       height: this.settings.creatNode.height
     };
@@ -138,7 +262,9 @@ export default class CanvasMindmap extends Plugin {
     const newEdge = {
       id: generateId(),
       fromNode: focusedNodeId,
-      toNode: childId
+      toNode: childId,
+      fromSide: "right", // 父节点右边
+      toSide: "left",    // 子节点左边
     };
 
     // Import updated nodes and edges
@@ -149,15 +275,16 @@ export default class CanvasMindmap extends Plugin {
     canvas.requestFrame();
     canvas.requestSave();
 
+    const createdNode = canvas.nodes.get(childId);
+    if (this.settings.layout.automaticGlobalLayout) {
+      this.debounceRelayoutCanvas(canvas)
+    } else {
+      this.debounceRelayoutOneTree(createdNode);
+    }
+    canvas.selectOnly(createdNode)
+    canvas.zoomToSelection();
     setTimeout(() => {
-      const createdNode = canvas.nodes.get(childId);
       createdNode.startEditing();
-      canvas.zoomToSelection();
-      if (this.settings.layout.automaticGlobalLayout) {
-        this.relayoutCanvas(canvas)
-      } else {
-        this.relayoutOneTree(createdNode);
-      }
     }, 100);
   }
 
@@ -181,27 +308,24 @@ export default class CanvasMindmap extends Plugin {
     const data = canvas.getData();
     const nodes = data?.nodes || [];
     const edges = data?.edges || [];
-    const currentNode = nodes.find((n: any) => n.id === focusedNodeId);
+    const currentNode = canvas.nodes.get(focusedNodeId);
     if (!currentNode) return;
 
     // 没有父节点则不能创建同级节点
-    const parentId = currentNode.parent;
+    const parentNode = this.getParentNode(canvas, focusedNodeId)
+    const parentNodeId = parentNode ? parentNode.id : null
 
-    if (parentId) {
-      const parentNode = nodes.find((n: any) => n.id === parentId);
-      if (!parentNode) return;
-    }
-
+    const verticalGap = this.settings.layout.automaticGlobalLayout || parentNode ? 0 : this.settings.layout.verticalGap
     // 新同级节点位置在当前节点下方
     const siblingId = generateId();
     const newNode = {
       id: siblingId,
-      parent: parentId,
+      parent: parentNodeId,
       children: [],
       text: '',
       type: 'text',
       x: currentNode.x,
-      y: currentNode.y + currentNode.height + this.settings.layout.horizontalGap,
+      y: currentNode.y + currentNode.height + verticalGap,
       width: this.settings.creatNode.width,
       height: this.settings.creatNode.height
     };
@@ -209,7 +333,7 @@ export default class CanvasMindmap extends Plugin {
     // 添加新边连接父节点和新同级节点
     const newEdge = {
       id: generateId(),
-      fromNode: parentId,
+      fromNode: parentNodeId,
       toNode: siblingId,
       fromSide: "right", // 父节点右边
       toSide: "left",    // 子节点左边
@@ -223,15 +347,16 @@ export default class CanvasMindmap extends Plugin {
     canvas.requestFrame();
     canvas.requestSave();
 
+    const createdNode = canvas.nodes.get(siblingId);
+    if (this.settings.layout.automaticGlobalLayout) {
+      this.debounceRelayoutCanvas(canvas)
+    } else {
+      this.debounceRelayoutOneTree(createdNode);
+    }
+    canvas.selectOnly(createdNode)
+    canvas.zoomToSelection();
     setTimeout(() => {
-      const createdNode = canvas.nodes.get(siblingId);
       createdNode.startEditing();
-      canvas.zoomToSelection();
-      if (this.settings.layout.automaticGlobalLayout) {
-        this.relayoutCanvas(canvas)
-      } else {
-        this.relayoutOneTree(createdNode);
-      }
     }, 100);
   }
 
@@ -334,14 +459,14 @@ export default class CanvasMindmap extends Plugin {
 
     if (parentNode) {
       setTimeout(() => {
+        if (this.settings.layout.automaticGlobalLayout) {
+          this.debounceRelayoutCanvas(canvas)
+        } else {
+          this.debounceRelayoutOneTree(parentNode);
+        }
         canvas.selectOnly(parentNode);
         canvas.zoomToSelection();
-        if (this.settings.layout.automaticGlobalLayout) {
-          this.relayoutCanvas(canvas)
-        } else {
-          this.relayoutOneTree(parentNode);
-        }
-      }, 100);
+      }, 0);
     }
   }
 
@@ -626,86 +751,179 @@ export default class CanvasMindmap extends Plugin {
     }
   }
 
-  private resizeAllNodes(canvas: any) {
-    const waitForChild = (node: any, callback: () => void, interval = 200, maxTries = 100) => {
-      let tries = 0;
-      const timer = setInterval(() => {
-        if (node.child?.previewMode?.renderer?.previewEl?.isConnected) {
-          clearInterval(timer);
-          callback();
-        } else if (++tries > maxTries) {
-          clearInterval(timer);
-          console.warn("等待 child 超时");
-        }
-      }, interval);
-    };
+  private async resizeAllNodes(canvas: any): Promise<void> {
+    const nodes = Array.from(canvas.nodes.values() as CanvasNode[]);
+    for (const node of nodes) {
+      if (node.text?.trim().length === 0 || node.file) continue
 
-    canvas.nodes.forEach((node: any) => {
-      canvas.selectOnly(node)
-      waitForChild(node, () => {
-        this.resizeNode(node, "bottom");
-        canvas.requestFrame();
-        canvas.requestSave();
-      });
-    });
+      node.canvas.selectOnly(node);
+      node.canvas.zoomToSelection();
+      let attempt = 0;
+      while (attempt < 10) {
+        await new Promise(requestAnimationFrame); // 等一帧
+        await new Promise(requestAnimationFrame); // 等一帧
+        if (node.child?.previewMode?.renderer?.previewEl?.isConnected) {
+          if (this.resizeNode(node, "bottom") === 1) {
+            await new Promise(requestAnimationFrame); // 等一帧
+            continue
+          }
+          canvas.requestFrame();
+          canvas.requestSave();
+          break
+        }
+        attempt++;
+      }
+    }
   }
 
 
   private relayoutCanvas(canvas: any) {
-    const data = canvas.getData();
-    const nodeMap = new Map((data.nodes as CanvasNode[]).map((n: any) => [n.id, n]));
-    const edges = data.edges;
+    if (this.inRelayoutCanvasSet.has(canvas)) return;
+    this.inRelayoutCanvasSet.add(canvas);
 
-    // 构建父子关系
-    const childrenMap: Record<string, string[]> = {};
-    edges.forEach((e: any) => {
-      if (!childrenMap[e.fromNode]) childrenMap[e.fromNode] = [];
-      childrenMap[e.fromNode].push(e.toNode);
-    });
+    try {
+      const data = canvas.getData();
+      const nodeMap = new Map((data.nodes as CanvasNode[]).map((n: any) => [n.id, n]));
+      const edges = data.edges;
 
-    // 找到根节点
-    const allIds = Array.from(nodeMap.keys());
-    const childIds = edges.map((e: any) => e.toNode);
-    const rootIds = allIds.filter(id => !childIds.includes(id));
+      // 构建父子关系
+      const childrenMap: Record<string, string[]> = {};
+      edges.forEach((e: any) => {
+        if (!childrenMap[e.fromNode]) childrenMap[e.fromNode] = [];
+        childrenMap[e.fromNode].push(e.toNode);
+      });
 
-    if (rootIds.length === 0) {
-      // 没有根节点，直接返回
-      return;
+      // 找到根节点
+      const allIds = Array.from(nodeMap.keys());
+      const childIds = edges.map((e: any) => e.toNode);
+      const rootIds = allIds.filter(id => !childIds.includes(id));
+
+      if (rootIds.length === 0) {
+        // 没有根节点，直接返回
+        return;
+      }
+
+      const horizontalGap = this.settings.layout.horizontalGap; // 水平间距
+      const verticalGap = this.settings.layout.verticalGap; // 垂直间距
+
+      let nodeHeightMap = this.getSubtreeHeightMap(nodeMap, childrenMap, rootIds, verticalGap);
+
+      // 从根节点开始布局
+      // 排序根节点，按 y 坐标升序
+      rootIds.sort((a, b) => {
+        const nodeA = nodeMap.get(a);
+        const nodeB = nodeMap.get(b);
+        return (nodeA?.y ?? 0) - (nodeB?.y ?? 0);
+      });
+      const rootNode = nodeMap.get(rootIds[0])
+      const treeHeight = nodeHeightMap.get(rootIds[0]) || rootNode.height;
+
+      let startY = rootNode.y + (rootNode.height - treeHeight) / 2;
+
+      for (const rootId of rootIds) {
+        this.layoutNode(rootId, rootNode.x, startY, nodeMap, nodeHeightMap, childrenMap, horizontalGap, verticalGap);
+        const rootHeight = nodeHeightMap.get(rootId) || 0;
+        startY += rootHeight + verticalGap;
+      }
+
+      canvas.importData({
+        nodes: data.nodes,
+        edges: edges
+      });
+      canvas.requestFrame();
+      canvas.requestSave();
+    } finally {
+      this.inRelayoutCanvasSet.delete(canvas);
     }
-
-    const horizontalGap = this.settings.layout.horizontalGap; // 水平间距
-    const verticalGap = this.settings.layout.verticalGap; // 垂直间距
-
-    let nodeHeightMap = this.getSubtreeHeightMap(nodeMap, childrenMap, rootIds, verticalGap);
-
-    // 从根节点开始布局
-    // 排序根节点，按 y 坐标升序
-    rootIds.sort((a, b) => {
-      const nodeA = nodeMap.get(a);
-      const nodeB = nodeMap.get(b);
-      return (nodeA?.y ?? 0) - (nodeB?.y ?? 0);
-    });
-    const rootNode = nodeMap.get(rootIds[0])
-    const treeHeight = nodeHeightMap.get(rootIds[0]) || rootNode.height;
-
-    let startY = rootNode.y + (rootNode.height - treeHeight) / 2;
-
-    for (const rootId of rootIds) {
-      this.layoutNode(rootId, rootNode.x, startY, nodeMap, nodeHeightMap, childrenMap, horizontalGap, verticalGap);
-      const rootHeight = nodeHeightMap.get(rootId) || 0;
-      startY += rootHeight + verticalGap;
-    }
-
-    canvas.importData({
-      nodes: data.nodes,
-      edges: edges
-    });
-    canvas.requestFrame();
-    canvas.requestSave();
   }
 
-  private layoutNode(rootId: string,startX: number,startY: number,nodeMap: Map<string, any>,nodeHeightMap: Map<string, number>,
-    childrenMap: Record<string, string[]>,horizontalGap: number,verticalGap: number) {
+  private relayoutOneTree(node: any) {
+    if (!node) return;
+    const canvas = node.canvas;
+    if (!canvas || !canvas.nodes.get(node.id)) return;
+
+    if (this.inRelayoutCanvasSet.has(canvas)) return;
+    this.inRelayoutCanvasSet.add(canvas);
+
+    try {
+      const data = canvas.getData();
+      const nodeMap = new Map((data.nodes as CanvasNode[]).map((n: any) => [n.id, n]));
+      const edges = data.edges;
+
+      // 构建父子关系
+      const childrenMap: Record<string, string[]> = {};
+      edges.forEach((e: any) => {
+        if (!childrenMap[e.fromNode]) childrenMap[e.fromNode] = [];
+        childrenMap[e.fromNode].push(e.toNode);
+      });
+
+      // 找到当前节点所在树的根节点
+      let rootId = node.id;
+      const visited = new Set<string>();
+      let parentNode = this.getParentNode(canvas, rootId);
+      while (parentNode && !visited.has(parentNode.id)) {
+        visited.add(parentNode.id);
+        rootId = parentNode.id;
+        parentNode = this.getParentNode(canvas, rootId);
+      }
+
+
+      const horizontalGap = this.settings.layout.horizontalGap; // 水平间距
+      const verticalGap = this.settings.layout.verticalGap; // 垂直间距
+
+      let nodeHeightMap = this.getSubtreeHeightMap(nodeMap, childrenMap, [rootId], verticalGap);
+
+      // 从根节点开始布局
+      const rootNode = nodeMap.get(rootId)
+      const treeHeight = nodeHeightMap.get(rootId) || rootNode.height;
+
+      let startY = rootNode.y + (rootNode.height - treeHeight) / 2;
+
+      this.layoutNode(rootId, rootNode.x, startY, nodeMap, nodeHeightMap, childrenMap, horizontalGap, verticalGap);
+
+      canvas.importData({
+        nodes: data.nodes,
+        edges: edges
+      });
+      canvas.requestFrame();
+      canvas.requestSave();
+    } finally {
+      this.inRelayoutCanvasSet.delete(canvas);
+    }
+
+  }
+
+  private relayoutSelectedTree(canvas: any) {
+    if (!canvas) return;
+    if (canvas.selection.size === 0) return;
+
+    // 收集所有选中节点的根节点
+    const rootIds = new Set<string>();
+    const visited = new Set<string>();
+    for (const node of canvas.selection.values()) {
+      let rootId = node.id;
+      let parentNode = this.getParentNode(canvas, rootId);
+
+      while (parentNode && !visited.has(parentNode.id)) {
+        visited.add(parentNode.id);
+        rootId = parentNode.id;
+        parentNode = this.getParentNode(canvas, rootId);
+      }
+
+      rootIds.add(rootId);
+    }
+
+    // 遍历每个根节点，重新布局
+    for (const rootId of rootIds) {
+      const rootNode = canvas.nodes.get(rootId);
+      if (rootNode) {
+        this.relayoutOneTree(rootNode);
+      }
+    }
+  }
+
+  private layoutNode(rootId: string, startX: number, startY: number, nodeMap: Map<string, any>, nodeHeightMap: Map<string, number>,
+    childrenMap: Record<string, string[]>, horizontalGap: number, verticalGap: number) {
     const visited = new Set<string>(); // 用于检测环路
 
     // 递归布局函数，调整节点位置，不返回高度
@@ -744,7 +962,15 @@ export default class CanvasMindmap extends Plugin {
         currentY = y + (node.height - subTreeHeight) / 2;
       }
 
-      for (const childId of children) {
+      const sortedChildrenIds = children
+        .filter((id: string) => nodeMap.has(id))       // 先过滤掉不存在的节点
+        .sort((a: string, b: string) => {
+          const nodeA = nodeMap.get(a);
+          const nodeB = nodeMap.get(b);
+          return (nodeA?.y ?? 0) - (nodeB?.y ?? 0);    // 按 y 轴升序
+        });
+
+      for (const childId of sortedChildrenIds) {
         const childHeight = nodeHeightMap.get(childId);
         if (!childHeight) continue;
         // 递归布局子节点，横向偏移，纵向位置为currentY
@@ -772,7 +998,6 @@ export default class CanvasMindmap extends Plugin {
 
       const children = childrenMap[id] || [];
       if (children.length === 0) {
-        const top = node.y;
         heightMap.set(id, node.height);
         return node.height;
       }
@@ -800,7 +1025,6 @@ export default class CanvasMindmap extends Plugin {
 
   verifyCanvasLayout(): boolean {
     const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
-    // @ts-ignore
     if (!canvasView?.file?.name?.includes(this.settings.condition.fileNameInclude)) return false;
     return true;
   }
@@ -825,7 +1049,6 @@ export default class CanvasMindmap extends Plugin {
     const patchCanvasKeys = () => {
       const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
       if (!canvasView) return false;
-      // @ts-ignore
       const canvas = canvasView.canvas;
 
       const self = this;
@@ -997,8 +1220,7 @@ export default class CanvasMindmap extends Plugin {
     const patchEditor = () => {
       const editorInfo = this.app.workspace.activeEditor;
 
-      if (!editorInfo) return false;
-      if (!editorInfo || !editorInfo.containerEl || editorInfo.containerEl.closest('.common-editor-inputer')) return false;
+      if (!editorInfo || !editorInfo.containerEl || editorInfo.containerEl.closest('.common-editor-inputer') || editorInfo.file) return false;
 
       const patchEditorInfo = editorInfo.constructor;
 
@@ -1008,8 +1230,7 @@ export default class CanvasMindmap extends Plugin {
         showPreview: (next) =>
           function (e: any) {
             next.call(this, e);
-            if (e && this.node) {
-              if (!self.verifyCanvasLayout()) return;
+            if (e && this.node && self.verifyCanvasLayout()) {
               this.node.canvas.wrapperEl.focus();
               this.node.setIsEditing(false);
               setTimeout(() => {
@@ -1017,9 +1238,9 @@ export default class CanvasMindmap extends Plugin {
                   self.resizeNode(this.node, "bottom");
                 }
                 if (self.settings.layout.automaticGlobalLayout) {
-                  self.relayoutCanvas(this.node.canvas)
+                  self.debounceRelayoutCanvas(this.node.canvas)
                 } else {
-                  self.relayoutOneTree(this.node);
+                  self.debounceRelayoutOneTree(this.node)
                 }
               }, 100);
             }
@@ -1042,11 +1263,104 @@ export default class CanvasMindmap extends Plugin {
     });
   }
 
-  resizeNode(node: any, n: string) {
-    var i = node.child;
-    var r = i.previewMode.renderer.previewEl;
-    if (!r.isShown())
-      return;
+  patchMarkdownFileInfoFile() {
+    const patchEditor = () => {
+      const editorInfo = this.app.workspace.activeEditor;
+
+      if (!editorInfo || !editorInfo.containerEl || editorInfo.containerEl.closest('.common-editor-inputer') || !editorInfo.file) return false;
+
+      const patchEditorInfo = editorInfo.constructor;
+
+      const self = this
+
+      const uninstaller = around(patchEditorInfo.prototype, {
+        showPreview: (next) =>
+          function (e: any) {
+            next.call(this, e);
+            if (e && self.verifyCanvasLayout()) {
+              const selection = this.app.workspace.getLeavesOfType("canvas").first()?.view?.canvas.selection
+              if (selection.size === 1) {
+                const node = selection.values().next().value
+                if (node) {
+                  node.canvas.wrapperEl.focus();
+                  node.setIsEditing(false);
+                  setTimeout(() => {
+                    if (self.settings.layout.automaticGlobalLayout) {
+                      self.debounceRelayoutCanvas(node.canvas)
+                    } else {
+                      self.debounceRelayoutOneTree(node)
+                    }
+                  }, 100);
+                }
+              }
+            }
+          },
+      });
+      this.register(uninstaller);
+
+      return true;
+    };
+
+    this.app.workspace.onLayoutReady(() => {
+      if (!patchEditor()) {
+        const evt = this.app.workspace.on("file-open", () => {
+          setTimeout(() => {
+            patchEditor() && this.app.workspace.offref(evt);
+          }, 100);
+        });
+        this.registerEvent(evt);
+      }
+    });
+  }
+
+  patchUpdateSelection() {
+    const patchEditor = () => {
+      const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
+      if (!canvasView) return false;
+
+      const canvas = canvasView.canvas;
+
+      const self = this
+
+      const uninstaller = around(canvas.constructor.prototype, {
+        updateSelection(next) {
+          return function (...args: any[]) {
+            if (this.selection.size === 1 && self.verifyCanvasLayout()) {
+              const node = this.selection.values().next().value
+              setTimeout(() => {
+                if (self.settings.layout.automaticGlobalLayout) {
+                  self.debounceRelayoutCanvas(node.canvas)
+                } else {
+                  self.debounceRelayoutOneTree(node)
+                }
+              }, 100);
+            }
+            next.apply(this, args);
+            return;
+          };
+        }
+      });
+      this.register(uninstaller);
+
+      return true;
+    };
+
+    this.app.workspace.onLayoutReady(() => {
+      if (!patchEditor()) {
+        const evt = this.app.workspace.on("file-open", () => {
+          setTimeout(() => {
+            patchEditor() && this.app.workspace.offref(evt);
+          }, 100);
+        });
+        this.registerEvent(evt);
+      }
+    });
+  }
+
+  resizeNode(node: any, n: string): number {
+    var r = node?.child?.previewMode?.renderer?.previewEl;
+    if (!r || !r.isShown())
+      return 0;
     if ("top" === n || "bottom" === n) {
       let maxHeight = null;
       if (this.settings.nodeAutoResize.maxLine >= 0) {
@@ -1054,101 +1368,26 @@ export default class CanvasMindmap extends Plugin {
         const lineHeight = parseFloat(computed.lineHeight);
         maxHeight = lineHeight * this.settings.nodeAutoResize.maxLine;
       }
-      
+
       for (var o = 0; o < 10; o++) {
         var a = r.clientHeight;
         r.style.height = "1px";
         var s = r.scrollHeight;
         r.style.height = "";
         var l = s - a + 1;
-        let height = Math.ceil(node.height + l)
+        if (s <= 1) return 1
+        let height = node.height + l
+        let finalHeight = maxHeight ? Math.min(maxHeight, height) : height
+        if (finalHeight >= node.height && finalHeight < node.height + 1) break
         node.resize({
           width: node.width,
-          height: maxHeight ? Math.min(maxHeight, height) : height
+          height: finalHeight
         }),
           node.render(),
-          node.canvas.requestSave()
+          node.canvas.requestSave();
       }
-      return
     }
-    r.style.height = "1px";
-    try {
-      var c = r.scrollHeight + .1
-        , u = node.width
-        , h = 0
-        , p = u;
-      for (o = 0; o < 10; o++) {
-        var d = Math.round((h + p) / 2);
-        if (node.resize({
-          width: d,
-          height: node.height
-        }),
-          node.render(),
-          r.scrollHeight > c ? h = d : p = d,
-          p - h < 1)
-          break
-      }
-      node.resize({
-        width: p,
-        height: node.height
-      }),
-        r.scrollHeight > c ? (node.resize({
-          width: u,
-          height: node.height
-        }),
-          node.render()) : node.canvas.requestSave()
-    } finally {
-      r.style.height = ""
-    }
+    return 0
   }
 
-  relayoutOneTree(node: any) {
-    if (!node) return;
-    const canvas = node.canvas;
-    if (!canvas) return;
-
-    const data = canvas.getData();
-    const nodeMap = new Map((data.nodes as CanvasNode[]).map((n: any) => [n.id, n]));
-    const edges = data.edges;
-
-    // 构建父子关系
-    const childrenMap: Record<string, string[]> = {};
-    edges.forEach((e: any) => {
-      if (!childrenMap[e.fromNode]) childrenMap[e.fromNode] = [];
-      childrenMap[e.fromNode].push(e.toNode);
-    });
-
-    // 找到当前节点所在树的根节点
-    let rootId = node.id;
-    const visited = new Set<string>();
-    let parentNode = this.getParentNode(canvas, rootId);
-    while (parentNode && !visited.has(parentNode.id)) {
-      visited.add(parentNode.id);
-      rootId = parentNode.id;
-      parentNode = this.getParentNode(canvas, rootId);
-    }
-
-
-    // 如果出现环路，循环会停止，并返回最后安全的 rootId
-
-    const horizontalGap = this.settings.layout.horizontalGap; // 水平间距
-    const verticalGap = this.settings.layout.verticalGap; // 垂直间距
-
-    let nodeHeightMap = this.getSubtreeHeightMap(nodeMap, childrenMap, [rootId], verticalGap);
-
-    // 从根节点开始布局
-    const rootNode = nodeMap.get(rootId)
-    const treeHeight = nodeHeightMap.get(rootId) || rootNode.height;
-
-    let startY = rootNode.y + (rootNode.height - treeHeight) / 2;
-
-    this.layoutNode(rootId, rootNode.x, startY, nodeMap, nodeHeightMap, childrenMap, horizontalGap, verticalGap);
-
-    canvas.importData({
-      nodes: data.nodes,
-      edges: edges
-    });
-    canvas.requestFrame();
-    canvas.requestSave();
-  } 
 }
