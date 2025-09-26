@@ -32,3 +32,6 @@ To be honest, if the author of this warehouse hadn't updated the plug-in for 1 y
 - The name of the modified key: Ctrl Shift Alt Mod (mod is cmd in macos, and ctrl in other systems)
 - Special key name: ArrowUp ArrowDown ArrowLeft ArrowRight
 - Using Alt as a modifier key often fails in macos. The reason may be that alt+ characters in the input method will be converted into special characters, so it is not recommended to use shortcuts with alt in macos.
+
+## Buy me a coffee
+<img width="500" height="680" alt="image" src="https://github.com/user-attachments/assets/fe781010-1915-49bd-8f34-094c0b1b7cb0" />
