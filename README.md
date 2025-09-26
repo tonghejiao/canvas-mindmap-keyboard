@@ -34,4 +34,4 @@ To be honest, if the author of this warehouse hadn't updated the plug-in for 1 y
 - Using Alt as a modifier key often fails in macos. The reason may be that alt+ characters in the input method will be converted into special characters, so it is not recommended to use shortcuts with alt in macos.
 
 ## Buy me a coffee
-<img width="500" height="680" alt="image" src="https://github.com/user-attachments/assets/fe781010-1915-49bd-8f34-094c0b1b7cb0" />
+<img width="300" height="410" alt="image" src="https://github.com/user-attachments/assets/fe781010-1915-49bd-8f34-094c0b1b7cb0" />
