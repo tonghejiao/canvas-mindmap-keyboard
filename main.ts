@@ -489,7 +489,14 @@ export default class CanvasMindmap extends Plugin {
         const outgoingEdges = canvas.getEdgesForNode(selectedItem).filter((e: any) => e.from.node.id === selectedItem.id);
         const childrenNodes = outgoingEdges.map((e: any) => e.to.node);
         // 移动到第一个子节点
-        if (childrenNodes.length > 0) targetNode = childrenNodes[0];
+        if (childrenNodes.length > 0) {
+          // 找 y 轴最小的子节点
+          const bestChild = childrenNodes.reduce((min: any, cur: any) => {
+            return cur.y < min.y ? cur : min;
+          }, childrenNodes[0]);
+
+          targetNode = bestChild;
+        }
         break;
       case 'ArrowUp':
       case 'ArrowDown':
