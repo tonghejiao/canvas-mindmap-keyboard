@@ -36,7 +36,7 @@ declare module 'obsidian' {
 
 const updateNodeSize = (plugin: CanvasMindmap) => {
   return EditorView.updateListener.of((v: ViewUpdate) => {
-    if (v.focusChanged && plugin.verifyCanvasLayout()) {
+    if (v.focusChanged && plugin.verifyCanvasLayout(null)) {
       const editor = v.state.field(editorInfoField);
       if (editor?.node) {
         const height = (v.view as EditorView).contentHeight
@@ -205,9 +205,9 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private createChildNode(canvas: any) {
-    if (!this.verifyCanvasLayout()) return;
-
     if (!canvas) return;
+
+    if (!this.verifyCanvasLayout(canvas)) return;
 
     if (canvas.selection.size !== 1) return;
     if (this.isFocusedNodeEditing(canvas)) return;
@@ -289,9 +289,9 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private createSiblingNode(canvas: any) {
-    if (!this.verifyCanvasLayout()) return;
-
     if (!canvas) return;
+
+    if (!this.verifyCanvasLayout(canvas)) return;
 
     if (canvas.selection.size === 0) {
       this.createRootNode(canvas);
@@ -361,8 +361,9 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private startEditingNode(canvas: any) {
-    if (!this.verifyCanvasLayout()) return;
     if (!canvas) return;
+
+    if (!this.verifyCanvasLayout(canvas)) return;
 
     const selection = canvas.selection;
     if (selection.size === 0) {
@@ -410,9 +411,9 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private deleteNode(canvas: any) {
-    if (!this.verifyCanvasLayout()) return;
-
     if (!canvas) return;
+
+    if (!this.verifyCanvasLayout(canvas)) return;
 
     if (canvas.selection.size !== 1) return;
     if (this.isFocusedNodeEditing(canvas)) return;
@@ -531,9 +532,10 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private navigate(canvas: any, direction: string) {
-    if (!this.verifyCanvasLayout()) return;
-
     if (!canvas) return;
+
+    if (!this.verifyCanvasLayout(canvas)) return;
+
 
     const selected = canvas.selection;
     if (selected.size !== 1 || this.isFocusedNodeEditing(canvas)) return;
@@ -548,9 +550,9 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private navigateUtilEnd(canvas: any, direction: string) {
-    if (!this.verifyCanvasLayout()) return;
-
     if (!canvas) return;
+
+    if (!this.verifyCanvasLayout(canvas)) return;
 
     const selected = canvas.selection;
     if (selected.size !== 1 || this.isFocusedNodeEditing(canvas)) return;
@@ -714,8 +716,9 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private freeNavigate(canvas: any, direction: string) {
-    if (!this.verifyCanvasLayout()) return;
     if (!canvas) return;
+
+    if (!this.verifyCanvasLayout(canvas)) return;
 
     const selected = canvas.selection;
     if (selected.size !== 1 || this.isFocusedNodeEditing(canvas)) return;
@@ -729,8 +732,9 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private freeNavigateUtilEnd(canvas: any, direction: string) {
-    if (!this.verifyCanvasLayout()) return;
     if (!canvas) return;
+
+    if (!this.verifyCanvasLayout(canvas)) return;
 
     const selected = canvas.selection;
     if (selected.size !== 1 || this.isFocusedNodeEditing(canvas)) return;
@@ -1030,8 +1034,16 @@ export default class CanvasMindmap extends Plugin {
     return heightMap;
   }
 
-  verifyCanvasLayout(): boolean {
-    const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
+  verifyCanvasLayout(canvas : any): boolean {
+    if (this.settings.condition.fileNameInclude === "") return true
+
+    let canvasView = null
+    if (canvas){
+      canvasView = canvas.view
+    } else {
+      canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
+    }
+
     if (!canvasView?.file?.name?.includes(this.settings.condition.fileNameInclude)) return false;
     return true;
   }
@@ -1237,7 +1249,7 @@ export default class CanvasMindmap extends Plugin {
         showPreview: (next) =>
           function (e: any) {
             next.call(this, e);
-            if (e && this.node && self.verifyCanvasLayout()) {
+            if (e && this.node && this.node.canvas && self.verifyCanvasLayout(this.node.canvas)) {
               this.node.canvas.wrapperEl.focus();
               this.node.setIsEditing(false);
               setTimeout(() => {
@@ -1284,9 +1296,9 @@ export default class CanvasMindmap extends Plugin {
         showPreview: (next) =>
           function (e: any) {
             next.call(this, e);
-            if (e && self.verifyCanvasLayout()) {
+            if (e && self.verifyCanvasLayout(null)) {
               const selection = this.app.workspace.getLeavesOfType("canvas").first()?.view?.canvas.selection
-              if (selection.size === 1) {
+              if (selection && selection.size === 1) {
                 const node = selection.values().next().value
                 if (node) {
                   node.canvas.wrapperEl.focus();
@@ -1332,7 +1344,7 @@ export default class CanvasMindmap extends Plugin {
       const uninstaller = around(canvas.constructor.prototype, {
         updateSelection(next) {
           return function (...args: any[]) {
-            if (this.selection.size === 1 && self.verifyCanvasLayout()) {
+            if (this.selection.size === 1 && self.verifyCanvasLayout(this)) {
               const node = this.selection.values().next().value
               setTimeout(() => {
                 if (self.settings.layout.automaticGlobalLayout) {
@@ -1365,7 +1377,7 @@ export default class CanvasMindmap extends Plugin {
   }
 
   resizeNode(node: any, n: string): number {
-    var r = node?.child?.previewMode?.renderer?.previewEl;
+    let r = node?.child?.previewMode?.renderer?.previewEl;
     if (!r || !r.isShown())
       return 0;
     if ("top" === n || "bottom" === n) {
@@ -1376,13 +1388,13 @@ export default class CanvasMindmap extends Plugin {
         maxHeight = lineHeight * this.settings.nodeAutoResize.maxLine;
       }
 
-      for (var o = 0; o < 10; o++) {
-        var a = r.clientHeight;
+      for (let o = 0; o < 10; o++) {
+        let a = r.clientHeight;
         r.style.height = "1px";
-        var s = r.scrollHeight;
-        r.style.height = "";
-        var l = s - a + 1;
+        let s = r.scrollHeight;
         if (s <= 1) return 1
+        r.style.height = "";
+        let l = s - a + 1;
         let height = node.height + l
         let finalHeight = maxHeight ? Math.min(maxHeight, height) : height
         if (finalHeight >= node.height && finalHeight < node.height + 1) break

@@ -101,7 +101,12 @@ export class MindMapSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		containerEl.createEl('h1', {text: 'Canvas MindMap keyboard Settings'});
+		new Setting(containerEl)
+			.setName('Donate')
+			.setDesc('If you like this plugin, consider donating to support continued development:')
+			.addButton((bt) => {
+				bt.buttonEl.outerHTML = `<a href="https://ko-fi.com/conantong02"><img src="https://storage.ko-fi.com/cdn/logomarkLogo.png" width=60></a>`;
+			});
 
 		containerEl.createEl('h2', { text: 'condition' });
 		new Setting(containerEl)
