@@ -22,6 +22,7 @@ export interface MindMapSettings {
 		height: number;		
 	},
 	layout: {
+		automaticGlobalLayout: boolean; // 自动全局布局开关
 		automaticLayoutLevel: number;
 		whichFileUseCanvasLevelAutomaticLayout: string;
 		whichFileUseTreeLevelAutomaticLayout: string;
@@ -66,6 +67,7 @@ export const DEFAULT_SETTINGS: MindMapSettings = {
 		height: 54,
 	},
 	layout: {
+		automaticGlobalLayout: true, // 自动全局布局开关 (弃用)
 		automaticLayoutLevel: AutomaticLayoutLevel.Tree,
 		whichFileUseCanvasLevelAutomaticLayout: "canvaslal",
 		whichFileUseTreeLevelAutomaticLayout: "treelal",
