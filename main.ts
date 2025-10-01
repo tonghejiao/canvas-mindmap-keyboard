@@ -79,7 +79,31 @@ export default class CanvasMindmap extends Plugin {
   }
 
   public async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const loadedData = await this.loadData() || {};
+
+    // 深拷贝默认设置
+    const mergedSettings: MindMapSettings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+
+    // 遍历已有设置，逐层合并
+    const merge = (target: any, source: any) => {
+      for (const key in source) {
+        if (source.hasOwnProperty(key)) {
+          if (
+            typeof target[key] === "object" &&
+            target[key] !== null &&
+            !Array.isArray(target[key])
+          ) {
+            merge(target[key], source[key]);
+          } else {
+            target[key] = source[key];
+          }
+        }
+      }
+    };
+
+    merge(mergedSettings, loadedData);
+
+    this.settings = mergedSettings;
   }
 
   async saveSettings(): Promise<void> {
