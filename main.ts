@@ -1,6 +1,6 @@
 import { Plugin, editorInfoField, debounce } from 'obsidian';
 import { around } from "monkey-around";
-import { DEFAULT_SETTINGS, MindMapSettings, MindMapSettingTab } from "mindMapSettings";
+import { DEFAULT_SETTINGS, MindMapSettings, MindMapSettingTab, AutomaticLayoutLevel } from "mindMapSettings";
 import { EditorView, ViewUpdate } from "@codemirror/view";
 
 function generateId() {
@@ -32,13 +32,17 @@ declare module 'obsidian' {
     canvas: any
     file: any
   }
+
+  interface Workspace {
+    getActiveFileView(): any;
+  }
 }
 
 const updateNodeSize = (plugin: CanvasMindmap) => {
   return EditorView.updateListener.of((v: ViewUpdate) => {
-    if (v.focusChanged && plugin.verifyCanvasLayout(null)) {
+    if (v.focusChanged) {
       const editor = v.state.field(editorInfoField);
-      if (editor?.node) {
+      if (editor?.node?.canvas?.view && plugin.verifyCanvasLayout(editor.node.canvas.view)) {
         const height = (v.view as EditorView).contentHeight
         editor.node.resize({
           width: editor.node.width,
@@ -87,8 +91,8 @@ export default class CanvasMindmap extends Plugin {
   }, 200);
 
   public debounceRelayoutCanvas = (canvas: any) => {
-    const now  = Date.now()
-    if (now - this.lastRelayoutTime < 200) return 
+    const now = Date.now()
+    if (now - this.lastRelayoutTime < 200) return
     this.lastRelayoutTime = now
     this.relayoutCanvas(canvas)
   };
@@ -106,10 +110,10 @@ export default class CanvasMindmap extends Plugin {
       id: 'canvas-mindmap-keyboard-global-relayout',
       name: 'global relayout',
       callback: () => {
-        const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
+        const canvasView = this.app.workspace.getActiveFileView();
         const canvas = canvasView?.canvas;
         if (!canvas) return;
-        this.debounceRelayoutCanvas(canvas);
+        this.relayoutCanvas(canvas);
       }
     });
     //调整所有节点的高度
@@ -117,7 +121,7 @@ export default class CanvasMindmap extends Plugin {
       id: 'canvas-mindmap-keyboard-global-resize',
       name: 'global resize',
       callback: () => {
-        const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
+        const canvasView = this.app.workspace.getActiveFileView();
         const canvas = canvasView?.canvas;
         if (!canvas) return;
         this.resizeAllNodes(canvas)
@@ -129,12 +133,12 @@ export default class CanvasMindmap extends Plugin {
       id: 'canvas-mindmap-keyboard-global-resize-and-relayout',
       name: 'global resize and relayout',
       callback: () => {
-        const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
+        const canvasView = this.app.workspace.getActiveFileView();
         const canvas = canvasView?.canvas;
         if (!canvas) return;
         this.resizeAllNodes(canvas)
           .then(() => {
-            this.debounceRelayoutCanvas(canvas);
+            this.relayoutCanvas(canvas);
           })
       }
     });
@@ -144,7 +148,7 @@ export default class CanvasMindmap extends Plugin {
       id: 'canvas-mindmap-keyboard-relayout-selected-tree',
       name: 'relayout selected tree',
       callback: () => {
-        const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
+        const canvasView = this.app.workspace.getActiveFileView();
         const canvas = canvasView?.canvas;
         this.relayoutSelectedTree(canvas)
       }
@@ -186,7 +190,7 @@ export default class CanvasMindmap extends Plugin {
     canvas.addNode(node);
     canvas.requestSave();
 
-    if (this.settings.layout.automaticGlobalLayout) {
+    if (this.layoutLevelIsCanvas(canvas)) {
       this.debounceRelayoutCanvas(canvas);
     }
     canvas.selectOnly(node)
@@ -205,9 +209,7 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private createChildNode(canvas: any) {
-    if (!canvas) return;
-
-    if (!this.verifyCanvasLayout(canvas)) return;
+    if (!canvas?.view || !this.verifyCanvasLayout(canvas.view)) return;
 
     if (canvas.selection.size !== 1) return;
     if (this.isFocusedNodeEditing(canvas)) return;
@@ -222,28 +224,35 @@ export default class CanvasMindmap extends Plugin {
     const currentNode = canvas.nodes.get(focusedNodeId);
     if (!currentNode) return;
 
-    // Find all children of the current node using canvas.getEdgesForNode for efficiency
-    const outgoingEdges = canvas.getEdgesForNode(currentNode).filter((e: any) =>
-      (e.from?.node?.id ?? e.fromNode) === focusedNodeId
-    );
-    const childIds = outgoingEdges.map((e: any) => e.to?.node?.id ?? e.toNode);
     let newY: number;
-    if (childIds.length > 0) {
-      // Find the maximum y+height among children
-      let maxBottom = -Infinity;
-      for (const childId of childIds) {
-        const childNode = canvas.nodes.get(childId);
-        if (childNode) {
-          const bottom = childNode.y + childNode.height;
-          if (bottom > maxBottom) maxBottom = bottom;
-        }
-      }
-      // If no children found in nodes (shouldn't happen), fallback to parent y
-      newY = (maxBottom > -Infinity ? maxBottom : currentNode.y);
+
+    if (this.layoutLevelIsNo(canvas)) {
+      newY = currentNode.y + currentNode.height / 2 - this.settings.creatNode.height / 2;
     } else {
-      // No children, place at parent's y
-      newY = currentNode.y;
+      // Find all children of the current node using canvas.getEdgesForNode for efficiency
+      const outgoingEdges = canvas.getEdgesForNode(currentNode).filter((e: any) =>
+        (e.from?.node?.id ?? e.fromNode) === focusedNodeId
+      );
+      const childIds = outgoingEdges.map((e: any) => e.to?.node?.id ?? e.toNode);
+      if (childIds.length > 0) {
+        // Find the maximum y+height among children
+        let maxBottom = -Infinity;
+        for (const childId of childIds) {
+          const childNode = canvas.nodes.get(childId);
+          if (childNode) {
+            const bottom = childNode.y + childNode.height;
+            if (bottom > maxBottom) maxBottom = bottom;
+          }
+        }
+        // If no children found in nodes (shouldn't happen), fallback to parent y
+        newY = (maxBottom > -Infinity ? maxBottom : currentNode.y);
+      } else {
+        // No children, place at parent's y
+        newY = currentNode.y + currentNode.height / 2 - this.settings.creatNode.height / 2;
+      }
     }
+
+
 
     const childId = generateId();
     const newNode = {
@@ -276,11 +285,7 @@ export default class CanvasMindmap extends Plugin {
     canvas.requestSave();
 
     const createdNode = canvas.nodes.get(childId);
-    if (this.settings.layout.automaticGlobalLayout) {
-      this.debounceRelayoutCanvas(canvas)
-    } else {
-      this.debounceRelayoutOneTree(createdNode);
-    }
+    this.autoLayout(canvas,createdNode)
     canvas.selectOnly(createdNode)
     canvas.zoomToSelection();
     setTimeout(() => {
@@ -289,9 +294,7 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private createSiblingNode(canvas: any) {
-    if (!canvas) return;
-
-    if (!this.verifyCanvasLayout(canvas)) return;
+    if (!canvas?.view || !this.verifyCanvasLayout(canvas.view)) return;
 
     if (canvas.selection.size === 0) {
       this.createRootNode(canvas);
@@ -315,7 +318,7 @@ export default class CanvasMindmap extends Plugin {
     const parentNode = this.getParentNode(canvas, focusedNodeId)
     const parentNodeId = parentNode ? parentNode.id : null
 
-    const verticalGap = this.settings.layout.automaticGlobalLayout || parentNode ? 0 : this.settings.layout.verticalGap
+    const verticalGap = this.layoutLevelIsCanvas(canvas) || parentNode ? 0 : this.settings.layout.verticalGap
     // 新同级节点位置在当前节点下方
     const siblingId = generateId();
     const newNode = {
@@ -348,11 +351,7 @@ export default class CanvasMindmap extends Plugin {
     canvas.requestSave();
 
     const createdNode = canvas.nodes.get(siblingId);
-    if (this.settings.layout.automaticGlobalLayout) {
-      this.debounceRelayoutCanvas(canvas)
-    } else {
-      this.debounceRelayoutOneTree(createdNode);
-    }
+    this.autoLayout(canvas, createdNode)
     canvas.selectOnly(createdNode)
     canvas.zoomToSelection();
     setTimeout(() => {
@@ -361,9 +360,7 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private startEditingNode(canvas: any) {
-    if (!canvas) return;
-
-    if (!this.verifyCanvasLayout(canvas)) return;
+    if (!canvas?.view || !this.verifyCanvasLayout(canvas.view)) return;
 
     const selection = canvas.selection;
     if (selection.size === 0) {
@@ -411,9 +408,7 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private deleteNode(canvas: any) {
-    if (!canvas) return;
-
-    if (!this.verifyCanvasLayout(canvas)) return;
+    if (!canvas?.view || !this.verifyCanvasLayout(canvas.view)) return;
 
     if (canvas.selection.size !== 1) return;
     if (this.isFocusedNodeEditing(canvas)) return;
@@ -460,11 +455,7 @@ export default class CanvasMindmap extends Plugin {
 
     if (parentNode) {
       setTimeout(() => {
-        if (this.settings.layout.automaticGlobalLayout) {
-          this.debounceRelayoutCanvas(canvas)
-        } else {
-          this.debounceRelayoutOneTree(parentNode);
-        }
+        this.autoLayout(canvas, parentNode)
         canvas.selectOnly(parentNode);
         canvas.zoomToSelection();
       }, 0);
@@ -532,10 +523,7 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private navigate(canvas: any, direction: string) {
-    if (!canvas) return;
-
-    if (!this.verifyCanvasLayout(canvas)) return;
-
+    if (!canvas?.view || !this.verifyCanvasLayout(canvas.view)) return;
 
     const selected = canvas.selection;
     if (selected.size !== 1 || this.isFocusedNodeEditing(canvas)) return;
@@ -550,9 +538,7 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private navigateUtilEnd(canvas: any, direction: string) {
-    if (!canvas) return;
-
-    if (!this.verifyCanvasLayout(canvas)) return;
+    if (!canvas?.view || !this.verifyCanvasLayout(canvas.view)) return;
 
     const selected = canvas.selection;
     if (selected.size !== 1 || this.isFocusedNodeEditing(canvas)) return;
@@ -716,9 +702,7 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private freeNavigate(canvas: any, direction: string) {
-    if (!canvas) return;
-
-    if (!this.verifyCanvasLayout(canvas)) return;
+    if (!canvas?.view || !this.verifyCanvasLayout(canvas.view)) return;
 
     const selected = canvas.selection;
     if (selected.size !== 1 || this.isFocusedNodeEditing(canvas)) return;
@@ -732,9 +716,7 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private freeNavigateUtilEnd(canvas: any, direction: string) {
-    if (!canvas) return;
-
-    if (!this.verifyCanvasLayout(canvas)) return;
+    if (!canvas?.view || !this.verifyCanvasLayout(canvas.view)) return;
 
     const selected = canvas.selection;
     if (selected.size !== 1 || this.isFocusedNodeEditing(canvas)) return;
@@ -1034,14 +1016,11 @@ export default class CanvasMindmap extends Plugin {
     return heightMap;
   }
 
-  verifyCanvasLayout(canvas : any): boolean {
+  verifyCanvasLayout(canvasView: any): boolean {
     if (this.settings.condition.fileNameInclude === "") return true
 
-    let canvasView = null
-    if (canvas){
-      canvasView = canvas.view
-    } else {
-      canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
+    if (!canvasView) {
+      canvasView = this.app.workspace.getActiveFileView();
     }
 
     if (!canvasView?.file?.name?.includes(this.settings.condition.fileNameInclude)) return false;
@@ -1066,9 +1045,8 @@ export default class CanvasMindmap extends Plugin {
   patchCanvas() {
     // Patch all existing Canvas leaves
     const patchCanvasKeys = () => {
-      const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
-      if (!canvasView) return false;
-      const canvas = canvasView.canvas;
+      const canvasView = this.app.workspace.getActiveFileView();
+      if (!canvasView?.canvas) return false;
 
       const self = this;
 
@@ -1220,7 +1198,8 @@ export default class CanvasMindmap extends Plugin {
       });
 
       this.register(canvasViewunistaller);
-      canvas?.view.leaf.rebuildView();
+      canvasView.canvas.view.leaf.rebuildView();
+
       return true;
     };
 
@@ -1238,8 +1217,7 @@ export default class CanvasMindmap extends Plugin {
   patchMarkdownFileInfo() {
     const patchEditor = () => {
       const editorInfo = this.app.workspace.activeEditor;
-
-      if (!editorInfo || !editorInfo.containerEl || editorInfo.containerEl.closest('.common-editor-inputer') || editorInfo.file) return false;
+      if (!editorInfo?.constructor || !editorInfo.containerEl || editorInfo.containerEl.closest('.common-editor-inputer') || editorInfo.file) return false;
 
       const patchEditorInfo = editorInfo.constructor;
 
@@ -1249,24 +1227,19 @@ export default class CanvasMindmap extends Plugin {
         showPreview: (next) =>
           function (e: any) {
             next.call(this, e);
-            if (e && this.node && this.node.canvas && self.verifyCanvasLayout(this.node.canvas)) {
+            if (e && this.node?.canvas?.view && self.verifyCanvasLayout(this.node.canvas.view)) {
               this.node.canvas.wrapperEl.focus();
               this.node.setIsEditing(false);
               setTimeout(() => {
                 if (this.node.text?.trim().length > 0) {
                   self.resizeNode(this.node, "bottom");
                 }
-                if (self.settings.layout.automaticGlobalLayout) {
-                  self.debounceRelayoutCanvas(this.node.canvas)
-                } else {
-                  self.debounceRelayoutOneTree(this.node)
-                }
+                self.autoLayout(this.node.canvas, this.node)
               }, 100);
             }
           },
       });
       this.register(uninstaller);
-
       return true;
     };
 
@@ -1286,7 +1259,7 @@ export default class CanvasMindmap extends Plugin {
     const patchEditor = () => {
       const editorInfo = this.app.workspace.activeEditor;
 
-      if (!editorInfo || !editorInfo.containerEl || editorInfo.containerEl.closest('.common-editor-inputer') || !editorInfo.file) return false;
+      if (!editorInfo?.constructor || !editorInfo.containerEl || editorInfo.containerEl.closest('.common-editor-inputer') || !editorInfo.file) return false;
 
       const patchEditorInfo = editorInfo.constructor;
 
@@ -1296,21 +1269,15 @@ export default class CanvasMindmap extends Plugin {
         showPreview: (next) =>
           function (e: any) {
             next.call(this, e);
-            if (e && self.verifyCanvasLayout(null)) {
-              const selection = this.app.workspace.getLeavesOfType("canvas").first()?.view?.canvas.selection
-              if (selection && selection.size === 1) {
-                const node = selection.values().next().value
-                if (node) {
-                  node.canvas.wrapperEl.focus();
-                  node.setIsEditing(false);
-                  setTimeout(() => {
-                    if (self.settings.layout.automaticGlobalLayout) {
-                      self.debounceRelayoutCanvas(node.canvas)
-                    } else {
-                      self.debounceRelayoutOneTree(node)
-                    }
-                  }, 100);
-                }
+            const canvasView = this.app.workspace.getActiveFileView()
+            if (e && canvasView?.canvas?.selection.size === 1 && self.verifyCanvasLayout(canvasView)) {
+              const node = canvasView.canvas.selection.values().next().value
+              if (node) {
+                node.canvas.wrapperEl.focus();
+                node.setIsEditing(false);
+                setTimeout(() => {
+                  self.autoLayout(node.canvas, node)
+                }, 100);
               }
             }
           },
@@ -1334,8 +1301,8 @@ export default class CanvasMindmap extends Plugin {
 
   patchUpdateSelection() {
     const patchEditor = () => {
-      const canvasView = this.app.workspace.getLeavesOfType("canvas").first()?.view;
-      if (!canvasView) return false;
+      const canvasView = this.app.workspace.getActiveFileView();
+      if (!canvasView?.canvas?.constructor) return false;
 
       const canvas = canvasView.canvas;
 
@@ -1344,14 +1311,10 @@ export default class CanvasMindmap extends Plugin {
       const uninstaller = around(canvas.constructor.prototype, {
         updateSelection(next) {
           return function (...args: any[]) {
-            if (this.selection.size === 1 && self.verifyCanvasLayout(this)) {
+            if (this.selection.size === 1 && this.view && self.verifyCanvasLayout(this.view)) {
               const node = this.selection.values().next().value
               setTimeout(() => {
-                if (self.settings.layout.automaticGlobalLayout) {
-                  self.debounceRelayoutCanvas(node.canvas)
-                } else {
-                  self.debounceRelayoutOneTree(node)
-                }
+                self.autoLayout(node.canvas, node)
               }, 100);
             }
             next.apply(this, args);
@@ -1409,4 +1372,54 @@ export default class CanvasMindmap extends Plugin {
     return 0
   }
 
+  autoLayout(canvas : any, node: any){
+    if (this.layoutLevelIsCanvas(canvas)) {
+      this.debounceRelayoutCanvas(canvas)
+    } else if (this.layoutLevelIsTree(canvas)){
+      this.debounceRelayoutOneTree(node)
+    }
+  }
+
+  layoutLevelIsCanvas(canvas: any): boolean {
+    if (canvas?.view?.file?.name) {
+      const fileName = canvas.view.file.name
+      if ("" != this.settings.layout.whichFileUseCanvasLevelAutomaticLayout && fileName.includes(this.settings.layout.whichFileUseCanvasLevelAutomaticLayout)) {
+        return true
+      } else if ("" != this.settings.layout.whichFileUseTreeLevelAutomaticLayout && fileName.includes(this.settings.layout.whichFileUseTreeLevelAutomaticLayout)) {
+        return false
+      } else if ("" != this.settings.layout.whichFileNotAutomaticLayout && fileName.includes(this.settings.layout.whichFileNotAutomaticLayout)) {
+        return false
+      } 
+    }
+
+    return AutomaticLayoutLevel.Canvas === this.settings.layout.automaticLayoutLevel
+  }
+
+  layoutLevelIsTree(canvas: any): boolean {
+    if (canvas?.view?.file?.name) {
+      const fileName = canvas.view.file.name
+      if ("" != this.settings.layout.whichFileUseCanvasLevelAutomaticLayout && fileName.includes(this.settings.layout.whichFileUseCanvasLevelAutomaticLayout)) {
+        return false
+      } else if ("" != this.settings.layout.whichFileUseTreeLevelAutomaticLayout && fileName.includes(this.settings.layout.whichFileUseTreeLevelAutomaticLayout)) {
+        return true
+      } else if ("" != this.settings.layout.whichFileNotAutomaticLayout && fileName.includes(this.settings.layout.whichFileNotAutomaticLayout)) {
+        return false
+      } 
+    }
+    return AutomaticLayoutLevel.Tree === this.settings.layout.automaticLayoutLevel
+  }
+
+  layoutLevelIsNo(canvas: any): boolean {
+    if (canvas?.view?.file?.name) {
+      const fileName = canvas.view.file.name
+      if ("" != this.settings.layout.whichFileUseCanvasLevelAutomaticLayout && fileName.includes(this.settings.layout.whichFileUseCanvasLevelAutomaticLayout)) {
+        return false
+      } else if ("" != this.settings.layout.whichFileUseTreeLevelAutomaticLayout && fileName.includes(this.settings.layout.whichFileUseTreeLevelAutomaticLayout)) {
+        return false
+      } else if ("" != this.settings.layout.whichFileNotAutomaticLayout && fileName.includes(this.settings.layout.whichFileNotAutomaticLayout)) {
+        return true
+      }  
+    }
+    return AutomaticLayoutLevel.None === this.settings.layout.automaticLayoutLevel
+  }
 }

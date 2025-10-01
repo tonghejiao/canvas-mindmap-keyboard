@@ -7,6 +7,12 @@ interface Hotkey {
 	enabled: boolean;
 }
 
+export enum AutomaticLayoutLevel {
+	Canvas = 0,
+	Tree = 1,
+	None = 2,
+}
+
 export interface MindMapSettings {
 	condition: {
 		fileNameInclude: string; // 文件名包含
@@ -16,7 +22,10 @@ export interface MindMapSettings {
 		height: number;		
 	},
 	layout: {
-		automaticGlobalLayout: boolean; // 自动全局布局开关
+		automaticLayoutLevel: number;
+		whichFileUseCanvasLevelAutomaticLayout: string;
+		whichFileUseTreeLevelAutomaticLayout: string;
+		whichFileNotAutomaticLayout: string;
 		horizontalGap: number; // 水平间距
 		verticalGap: number; // 垂直间距
 	},
@@ -54,12 +63,15 @@ export const DEFAULT_SETTINGS: MindMapSettings = {
 	},
 	creatNode: {
 		width: 300,
-		height: 100,
+		height: 54,
 	},
 	layout: {
-		automaticGlobalLayout: true, // 自动全局布局开关
-		horizontalGap: 200, // 水平间距
-		verticalGap: 80,// 垂直间距
+		automaticLayoutLevel: AutomaticLayoutLevel.Tree,
+		whichFileUseCanvasLevelAutomaticLayout: "canvaslal",
+		whichFileUseTreeLevelAutomaticLayout: "treelal",
+		whichFileNotAutomaticLayout: "notal",
+		horizontalGap: 100, // 水平间距
+		verticalGap: 30,// 垂直间距
 	},
 	nodeAutoResize: {
 		maxLine: -1, // 节点自动增高的最大行数，超过后不再自动增高
@@ -152,14 +164,51 @@ export class MindMapSettingTab extends PluginSettingTab {
 
 		containerEl.createEl('h2', { text: 'layout' });
 		new Setting(containerEl)
-			.setName('automatic global layout')
-			.setDesc('When enabled, the entire mind map will automatically arrange itself into a tree structure whenever a node is created or deleted.')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.layout.automaticGlobalLayout)
-				.onChange(async (value) => {
-					this.plugin.settings.layout.automaticGlobalLayout = value;
-					await this.plugin.saveSettings();
-				})
+			.setName('default automatic layout level')
+			.addDropdown(dropdown => {
+				dropdown.addOption(AutomaticLayoutLevel.Canvas.toString(), "automatic layout in the canvas");
+				dropdown.addOption(AutomaticLayoutLevel.Tree.toString(), "automatic layout in the tree");
+				dropdown.addOption(AutomaticLayoutLevel.None.toString(), "not automatic layout");
+
+				dropdown
+					.setValue(this.plugin.settings.layout.automaticLayoutLevel.toString())
+					.onChange(async (value) => {
+						const intValue = parseInt(value);
+						if (!isNaN(intValue)) {
+							this.plugin.settings.layout.automaticLayoutLevel = intValue;
+							await this.plugin.saveSettings();
+						}
+					});
+			});
+
+		new Setting(containerEl)
+			.setName('Which type of file uses canvas-level automatic layout?')
+			.addText(text => text
+				.setPlaceholder('The file name contains')
+				.setValue(this.plugin.settings.layout.whichFileUseCanvasLevelAutomaticLayout)
+				.onChange(debounce(async (value) => {
+					this.plugin.settings.layout.whichFileUseCanvasLevelAutomaticLayout = value;
+				}, 500))
+			);
+
+		new Setting(containerEl)
+			.setName('Which type of file uses tree-level automatic layout?')
+			.addText(text => text
+				.setPlaceholder('The file name contains')
+				.setValue(this.plugin.settings.layout.whichFileUseTreeLevelAutomaticLayout)
+				.onChange(debounce(async (value) => {
+					this.plugin.settings.layout.whichFileUseTreeLevelAutomaticLayout = value;
+				}, 500))
+			);
+
+		new Setting(containerEl)
+			.setName('Which type of file are not automatic layout?')
+			.addText(text => text
+				.setPlaceholder('The file name contains')
+				.setValue(this.plugin.settings.layout.whichFileNotAutomaticLayout)
+				.onChange(debounce(async (value) => {
+					this.plugin.settings.layout.whichFileNotAutomaticLayout = value;
+				}, 500))
 			);
 
 		new Setting(containerEl)
