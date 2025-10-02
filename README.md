@@ -6,6 +6,10 @@ Thank you for this warehouse: [https://github.com/Quorafind/Obsidian-Canvas-Mind
 
 To be honest, if the author of this warehouse hadn't updated the plug-in for 1 year, I wouldn't have been too lazy to develop this plug-in.
 
+## Contact me
+
+WeChat: smallconantong
+
 ## Feature
 | Name                                                         | Introduce                                                    | Use the premise                                              |
 | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
@@ -21,7 +25,7 @@ To be honest, if the author of this warehouse hadn't updated the plug-in for 1 y
 | The node enters the editing state                            | Press the `space` bar                                        | When only one node is selected<br />The file name contains the `mindmap` string |
 | Select the node closest to the center of the view            | Press the `space` bar                                        | When not a single node is selected<br />The file name contains the `mindmap` string |
 | Automatically adjust the height of the node                  |                                                              | When the node exits the editing state<br />The file name contains the `mindmap` string |
-| The whole canvas Automatic layout                            | You can turn it off in the settings.                         | When creating and deleting nodes<br />The file name contains the `mindmap` string |
+| Automatic layout                                             | There are three levels of automatic layout: <br />- automatic layout of the entire canvas, <br />- automatic layout in the tree, <br />- and non-automatic layout.<br /> You can also set the automatic layout for the canvas separately. You only need to add keywords to the file name (check in the settings) | When creating and deleting nodes<br />The file name contains the `mindmap` string |
 | Manually adjust the height of all nodes in canvas            | Command: global resize                                       |                                                              |
 | Manually adjust the layout of the whole canvas               | Command: global relayout                                     |                                                              |
 | Manually adjust the height and layout of all nodes           | Command: global resize and relayout                          |                                                              |
