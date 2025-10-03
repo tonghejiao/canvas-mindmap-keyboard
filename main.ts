@@ -1041,14 +1041,18 @@ export default class CanvasMindmap extends Plugin {
   }
 
   verifyCanvasLayout(canvasView: any): boolean {
-    if (this.settings.condition.fileNameInclude === "") return true
-
     if (!canvasView) {
       canvasView = this.app.workspace.getActiveFileView();
     }
 
-    if (!canvasView?.file?.name?.includes(this.settings.condition.fileNameInclude)) return false;
-    return true;
+    if (this.settings.condition.fileNameInclude !== "" && !canvasView?.file?.name?.includes(this.settings.condition.fileNameInclude)) return false;
+
+    const titleEl = canvasView.headerEl.querySelector(".view-header-title") as HTMLElement;
+
+    // 判断是不是正在编辑标题
+    const isEditingTitle = (document.activeElement === titleEl);
+
+    return !isEditingTitle;
   }
 
   closestSegmentLength(rectA: CanvasNode, rectB: CanvasNode): number {
