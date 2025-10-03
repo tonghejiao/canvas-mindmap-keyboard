@@ -17,7 +17,7 @@ WeChat: smallconantong
 | Create a root node                                           | Press the `enter` key                                        | When no node is selected<br />The file name contains the `mindmap` string |
 | Create sub-nodes                                             | Press the `tab` key                                          | When only one node is selected<br />The file name contains the `mindmap` string |
 | Create a brother node                                        | Press the `enter` key                                        | When only one node is selected<br />The file name contains the `mindmap` string |
-| Delete nodes and subtrees                                    | Press the `delete` key or `backspace` key                    | When only one node is selected<br />The file name contains the `mindmap` string |
+| Delete nodes and subtrees                                    | Press the `backspace` key                                    | When only one node is selected<br />The file name contains the `mindmap` string |
 | Move the focus node(free mode)                               | Press the `i/j/k/l` key<br />You can modify it in the settings. | When only one node is selected<br />The file name contains the `mindmap` string |
 | Move the focus node until end (free mode)                    | Press the `Shift + i/j/k/l` key<br />You can modify it in the settings. | <br />The file name contains the `mindmap` string            |
 | Move the focus node(Normal mode)                             | macos: Press the `Ctrl + i/j/k/l` key<br />otheros: Press the `Alt + i/j/k/l` key<br />You can modify it in the settings. | When only one node is selected<br />The file name contains the `mindmap` string |
