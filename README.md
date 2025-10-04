@@ -40,5 +40,3 @@ WeChat: smallconantong
 ## Buy me a coffee
 ### ko-fi
 [<img src="https://storage.ko-fi.com/cdn/logomarkLogo.png" width="100">](https://ko-fi.com/conantong02)
-### WeChat
-<img width="300" height="410" alt="image" src="https://github.com/user-attachments/assets/fe781010-1915-49bd-8f34-094c0b1b7cb0" />
