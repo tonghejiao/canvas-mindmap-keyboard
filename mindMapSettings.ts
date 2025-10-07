@@ -32,6 +32,7 @@ export interface MindMapSettings {
 	},
 	nodeAutoResize: {
 		maxLine: number; // 节点自动增高的最大行数，超过后不再自动增高
+		maxWidth: number;
 	}
 	hotkey: {
 		createChildNode: Hotkey,
@@ -77,6 +78,7 @@ export const DEFAULT_SETTINGS: MindMapSettings = {
 	},
 	nodeAutoResize: {
 		maxLine: -1, // 节点自动增高的最大行数，超过后不再自动增高
+		maxWidth: 300,
 	},
 	hotkey: {
 		createChildNode: { modifiers: "", key: "Tab", enabled: true },
@@ -252,6 +254,20 @@ export class MindMapSettingTab extends PluginSettingTab {
 					const intValue = parseInt(value);
 					if (!isNaN(intValue) && intValue >= -1) {
 						this.plugin.settings.nodeAutoResize.maxLine = intValue;
+						await this.plugin.saveSettings();
+					}
+				}, 500))
+			);
+
+		new Setting(containerEl)
+			.setName('max Width')
+			.addText(text => text
+				.setPlaceholder('max Width')
+				.setValue(this.plugin.settings.nodeAutoResize.maxWidth.toString())
+				.onChange(debounce(async (value) => {
+					const intValue = parseInt(value);
+					if (!isNaN(intValue) && intValue >= -1) {
+						this.plugin.settings.nodeAutoResize.maxWidth = intValue;
 						await this.plugin.saveSettings();
 					}
 				}, 500))

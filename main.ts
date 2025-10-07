@@ -20,6 +20,7 @@ interface CanvasNode {
 
   setIsEditing(arg0: boolean): unknown;
   resize(arg0: { width: any; height: number; }): unknown;
+  render(): unknown;
 }
 
 declare module 'obsidian' {
@@ -42,13 +43,49 @@ const updateNodeSize = (plugin: CanvasMindmap) => {
   return EditorView.updateListener.of((v: ViewUpdate) => {
     if (v.focusChanged) {
       const editor = v.state.field(editorInfoField);
-      if (editor?.node?.canvas?.view && plugin.verifyCanvasLayout(editor.node.canvas.view)) {
-        const height = (v.view as EditorView).contentHeight
-        editor.node.resize({
-          width: editor.node.width,
-          height: height + 20,
-        });
-        plugin.debounceSaveCanvas(editor.node.canvas);
+      const node = editor?.node;
+
+      if (node?.canvas?.view && plugin.verifyCanvasLayout(node.canvas.view)) {
+        setTimeout(() => {
+          const sizerEl = node?.child?.editMode?.sizerEl;
+          if (sizerEl) {
+            node.resize({ width: node.width, height: sizerEl.innerHeight + 35 }),
+              node.render(),
+              plugin.debounceSaveCanvas(node.canvas)
+          }
+        }, 100);
+      }
+    }
+    if (v.docChanged || v.selectionSet) {
+      const editor = v.state.field(editorInfoField);
+      const node = editor?.node;
+
+      if (node?.canvas?.view && plugin.verifyCanvasLayout(node.canvas.view)) {
+        const sizerEl = node?.child?.editMode?.sizerEl;
+        if (sizerEl) {
+          const sizerEl = node?.child?.editMode?.sizerEl;
+          if (sizerEl) {
+            let existMermaid = false
+
+            existMermaid = sizerEl.querySelector(".HyperMD-codeblock") || sizerEl.querySelector(".cm-lang-mermaid")
+
+            if (!existMermaid) {
+              const lines = sizerEl.querySelectorAll(".cm-line");
+              let maxWidth = 0;
+              for (const lineEl of lines) {
+                const width = plugin.getTextPixelWidthFromElement(lineEl);
+                if (width > maxWidth) maxWidth = width;
+              }
+              maxWidth += 51
+              const finalWidth = plugin.settings.nodeAutoResize.maxWidth < 0 ? maxWidth : Math.min(maxWidth, plugin.settings.nodeAutoResize.maxWidth); // 最大宽度限制
+              node.resize({ width: finalWidth, height: 1 }),
+                node.render(),
+                node.resize({ width: node.width, height: sizerEl.innerHeight + 35 }),
+                node.render(),
+                plugin.debounceSaveCanvas(node.canvas);
+            }
+          }
+        }
       }
     }
   });
@@ -110,9 +147,9 @@ export default class CanvasMindmap extends Plugin {
     await this.saveData(this.settings);
   }
 
-  public debounceSaveCanvas = debounce((canvas: any) => {
+  public debounceSaveCanvas = (canvas: any) => {
     canvas.requestSave();
-  }, 200);
+  };
 
   public debounceRelayoutCanvas = (canvas: any) => {
     const now = Date.now()
@@ -309,7 +346,7 @@ export default class CanvasMindmap extends Plugin {
     canvas.requestSave();
 
     const createdNode = canvas.nodes.get(childId);
-    this.autoLayout(canvas,createdNode)
+    this.autoLayout(canvas, createdNode)
     canvas.selectOnly(createdNode)
     canvas.zoomToSelection();
     setTimeout(() => {
@@ -1260,6 +1297,8 @@ export default class CanvasMindmap extends Plugin {
               this.node.setIsEditing(false);
               setTimeout(() => {
                 if (this.node.text?.trim().length > 0) {
+                  self.resizeNode(this.node, "left");
+                  new Promise(requestAnimationFrame);
                   self.resizeNode(this.node, "bottom");
                 }
                 self.autoLayout(this.node.canvas, this.node)
@@ -1368,7 +1407,8 @@ export default class CanvasMindmap extends Plugin {
   }
 
   resizeNode(node: any, n: string): number {
-    let r = node?.child?.previewMode?.renderer?.previewEl;
+    const renderer = node?.child?.previewMode?.renderer
+    let r = renderer?.previewEl;
     if (!r || !r.isShown())
       return 0;
     if ("top" === n || "bottom" === n) {
@@ -1396,14 +1436,35 @@ export default class CanvasMindmap extends Plugin {
           node.render(),
           node.canvas.requestSave();
       }
+      return 0
     }
+    const lines = renderer?.sizerEl?.children;
+    let maxWidth = 0;
+
+    for (const lineEl of lines) {
+      if (lineEl.classList.contains("el-pre")) {
+        return 0; //存在 .el-pre 类型元素 不修改宽度
+      }
+      const width = this.getLongestLineWidthFromElement(lineEl);
+      if (width > maxWidth) maxWidth = width;
+    }
+    maxWidth += 51
+    const finalWidth = this.settings.nodeAutoResize.maxWidth < 0 ? maxWidth : Math.min(maxWidth, this.settings.nodeAutoResize.maxWidth); // 最大宽度限制
+
+    node.resize({
+      width: finalWidth,
+      height: node.height
+    }),
+      node.render(),
+      node.canvas.requestSave();
+
     return 0
   }
 
-  autoLayout(canvas : any, node: any){
+  autoLayout(canvas: any, node: any) {
     if (this.layoutLevelIsCanvas(canvas)) {
       this.debounceRelayoutCanvas(canvas)
-    } else if (this.layoutLevelIsTree(canvas)){
+    } else if (this.layoutLevelIsTree(canvas)) {
       this.debounceRelayoutOneTree(node)
     }
   }
@@ -1417,7 +1478,7 @@ export default class CanvasMindmap extends Plugin {
         return false
       } else if ("" != this.settings.layout.whichFileNotAutomaticLayout && fileName.includes(this.settings.layout.whichFileNotAutomaticLayout)) {
         return false
-      } 
+      }
     }
 
     return AutomaticLayoutLevel.Canvas === this.settings.layout.automaticLayoutLevel
@@ -1432,7 +1493,7 @@ export default class CanvasMindmap extends Plugin {
         return true
       } else if ("" != this.settings.layout.whichFileNotAutomaticLayout && fileName.includes(this.settings.layout.whichFileNotAutomaticLayout)) {
         return false
-      } 
+      }
     }
     return AutomaticLayoutLevel.Tree === this.settings.layout.automaticLayoutLevel
   }
@@ -1446,8 +1507,43 @@ export default class CanvasMindmap extends Plugin {
         return false
       } else if ("" != this.settings.layout.whichFileNotAutomaticLayout && fileName.includes(this.settings.layout.whichFileNotAutomaticLayout)) {
         return true
-      }  
+      }
     }
     return AutomaticLayoutLevel.None === this.settings.layout.automaticLayoutLevel
+  }
+
+  getTextPixelWidthFromElement(lineEl: HTMLElement): number {
+    const text = lineEl.textContent ?? "";
+    const style = getComputedStyle(lineEl);
+    const font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return -1
+    ctx.font = font;
+    const metrics = ctx.measureText(text);
+    return metrics.width;
+  }
+
+  getLongestLineWidthFromElement(lineEl: HTMLElement): number {
+    if (!lineEl) return 0;
+    const text = lineEl.textContent ?? "";
+    const style = getComputedStyle(lineEl);
+    const font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+
+    // 创建 canvas 测文字
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return -1
+    ctx.font = font;
+
+    // 按换行符分行（<br> 变成了 \n）
+    const lines = text.split("\n");
+
+    let maxWidth = 0;
+    for (const line of lines) {
+      const width = ctx.measureText(line).width;
+      if (width > maxWidth) maxWidth = width;
+    }
+    return maxWidth;
   }
 }
