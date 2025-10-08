@@ -62,30 +62,27 @@ const updateNodeSize = (plugin: CanvasMindmap) => {
 
       if (node?.canvas?.view && plugin.verifyCanvasLayout(node.canvas.view)) {
         const sizerEl = node?.child?.editMode?.sizerEl;
-        if (sizerEl) {
-          const sizerEl = node?.child?.editMode?.sizerEl;
-          if (sizerEl) {
-            let existMermaid = false
+        if (!sizerEl) return
 
-            existMermaid = sizerEl.querySelector(".HyperMD-codeblock") || sizerEl.querySelector(".cm-lang-mermaid")
+        let existMermaid = sizerEl.querySelector(".HyperMD-codeblock") ||
+          sizerEl.querySelector(".cm-lang-mermaid") ||
+          sizerEl.querySelector("img")
 
-            if (!existMermaid) {
-              const lines = sizerEl.querySelectorAll(".cm-line");
-              let maxWidth = 0;
-              for (const lineEl of lines) {
-                const width = plugin.getTextPixelWidthFromElement(lineEl);
-                if (width > maxWidth) maxWidth = width;
-              }
-              maxWidth += plugin.settings.nodeAutoResize.contentHorizontalPadding
-              const finalWidth = plugin.settings.nodeAutoResize.maxWidth < 0 ? maxWidth : Math.min(maxWidth, plugin.settings.nodeAutoResize.maxWidth); // 最大宽度限制
-              node.resize({ width: finalWidth, height: 1 }),
-                node.render(),
-                node.resize({ width: node.width, height: sizerEl.innerHeight + 35 }),
-                node.render(),
-                plugin.debounceSaveCanvas(node.canvas);
-            }
-          }
+        if (existMermaid) return
+        const lines = sizerEl.querySelectorAll(".cm-line");
+        let maxWidth = 0;
+        for (const lineEl of lines) {
+          const width = plugin.getTextPixelWidthFromElement(lineEl);
+          if (width > maxWidth) maxWidth = width;
         }
+        maxWidth += plugin.settings.nodeAutoResize.contentHorizontalPadding
+        const finalWidth = plugin.settings.nodeAutoResize.maxWidth < 0 ? maxWidth : Math.min(maxWidth, plugin.settings.nodeAutoResize.maxWidth); // 最大宽度限制
+        node.resize({ width: finalWidth, height: 1 }),
+          node.render(),
+          node.resize({ width: node.width, height: sizerEl.innerHeight + 35 }),
+          node.render(),
+          plugin.debounceSaveCanvas(node.canvas);
+
       }
     }
   });
@@ -1438,13 +1435,14 @@ export default class CanvasMindmap extends Plugin {
       }
       return 0
     }
-    const lines = renderer?.sizerEl?.children;
+    const sizerEl = renderer?.sizerEl
+    if (!sizerEl || sizerEl.querySelector(".el-pre") || sizerEl.querySelector("img")) return 0
+
+    const lines = sizerEl.children;
+    if (lines.length === 0) return 0
     let maxWidth = 0;
 
     for (const lineEl of lines) {
-      if (lineEl.classList.contains("el-pre")) {
-        return 0; //存在 .el-pre 类型元素 不修改宽度
-      }
       const width = this.getLongestLineWidthFromElement(lineEl);
       if (width > maxWidth) maxWidth = width;
     }
