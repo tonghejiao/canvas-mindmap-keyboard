@@ -76,7 +76,7 @@ const updateNodeSize = (plugin: CanvasMindmap) => {
                 const width = plugin.getTextPixelWidthFromElement(lineEl);
                 if (width > maxWidth) maxWidth = width;
               }
-              maxWidth += 51
+              maxWidth += plugin.settings.nodeAutoResize.contentHorizontalPadding
               const finalWidth = plugin.settings.nodeAutoResize.maxWidth < 0 ? maxWidth : Math.min(maxWidth, plugin.settings.nodeAutoResize.maxWidth); // 最大宽度限制
               node.resize({ width: finalWidth, height: 1 }),
                 node.render(),
@@ -1448,7 +1448,7 @@ export default class CanvasMindmap extends Plugin {
       const width = this.getLongestLineWidthFromElement(lineEl);
       if (width > maxWidth) maxWidth = width;
     }
-    maxWidth += 51
+    maxWidth += this.settings.nodeAutoResize.contentHorizontalPadding
     const finalWidth = this.settings.nodeAutoResize.maxWidth < 0 ? maxWidth : Math.min(maxWidth, this.settings.nodeAutoResize.maxWidth); // 最大宽度限制
 
     node.resize({
