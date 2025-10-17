@@ -7,9 +7,9 @@ If your plugin does not need CSS, delete this file.
 
 */
 .canvas-node-content.markdown-embed>.markdown-embed-content>.markdown-preview-view {
-    padding: 0 0 0 16px;
+    padding-right: calc(16px - var(--scrollbar-width, 0px));
 }
 
 .markdown-source-view.mod-inside-iframe>.cm-editor>.cm-scroller {
-    padding: 0 0 0 16px;
+    padding-right: calc(16px - var(--scrollbar-width, 0px));
 }

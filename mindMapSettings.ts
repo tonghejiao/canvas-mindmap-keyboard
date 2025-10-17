@@ -31,6 +31,8 @@ export interface MindMapSettings {
 		verticalGap: number; // 垂直间距
 	},
 	nodeAutoResize: {
+		autoResizeWidthSwitch: boolean; // 是否开启节点自动宽度
+		autoResizeHeightSwitch: boolean; // 是否开启节点自动高度
 		maxLine: number; // 节点自动增高的最大行数，超过后不再自动增高
 		maxWidth: number;
 		contentHorizontalPadding: number;
@@ -78,8 +80,10 @@ export const DEFAULT_SETTINGS: MindMapSettings = {
 		verticalGap: 30,// 垂直间距
 	},
 	nodeAutoResize: {
+		autoResizeWidthSwitch: true, // 是否开启节点自动宽度
+		autoResizeHeightSwitch: true, // 是否开启节点自动高度
 		maxLine: -1, // 节点自动增高的最大行数，超过后不再自动增高
-		maxWidth: 300,
+		maxWidth: 380,
 		contentHorizontalPadding: 35,
 	},
 	hotkey: {
@@ -246,6 +250,26 @@ export class MindMapSettingTab extends PluginSettingTab {
 			);
 
 		containerEl.createEl('h2', { text: 'node auto resize' });
+		new Setting(containerEl)
+			.setName('auto resize width switch')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.nodeAutoResize.autoResizeWidthSwitch)
+				.onChange(async (value) => {
+					this.plugin.settings.nodeAutoResize.autoResizeWidthSwitch = value;
+					await this.plugin.saveSettings();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName('auto resize height switch')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.nodeAutoResize.autoResizeHeightSwitch)
+				.onChange(async (value) => {
+					this.plugin.settings.nodeAutoResize.autoResizeHeightSwitch = value;
+					await this.plugin.saveSettings();
+				})
+			);
+		
 		new Setting(containerEl)
 			.setName('max line')
 			.setDesc('The maximum number of lines for automatic height increase of nodes. If exceeded, the height will no longer increase automatically. Set to -1 for unlimited lines.')

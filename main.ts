@@ -39,49 +39,72 @@ declare module 'obsidian' {
   }
 }
 
+const unableCalcHeightOrWidth = (sizerEl : any) => {
+  return !sizerEl ||
+     sizerEl.querySelector(".HyperMD-codeblock") ||
+    sizerEl.querySelector(".cm-lang-mermaid") ||
+    sizerEl.querySelector("img") ||
+    sizerEl.querySelector(".HyperMD-list-line") ||
+    sizerEl.querySelector(".cm-embed-block") ||
+    sizerEl.querySelector(".HyperMD-header") ||
+    sizerEl.querySelector(".external-link") ||
+    sizerEl.querySelector(".footnote-ref") ||
+    sizerEl.querySelector(".hr") ||
+    sizerEl.querySelector(".HyperMD-footnote") ||
+    sizerEl.querySelector(".math")
+}
+
 const updateNodeSize = (plugin: CanvasMindmap) => {
   return EditorView.updateListener.of((v: ViewUpdate) => {
     if (v.focusChanged) {
+      if (!plugin.settings.nodeAutoResize.autoResizeHeightSwitch) return;
+
       const editor = v.state.field(editorInfoField);
       const node = editor?.node;
 
       if (node?.canvas?.view && plugin.verifyCanvasLayout(node.canvas.view)) {
         setTimeout(() => {
           const sizerEl = node?.child?.editMode?.sizerEl;
-          if (sizerEl) {
-            node.resize({ width: node.width, height: sizerEl.innerHeight + 35 }),
-              node.render(),
-              plugin.debounceSaveCanvas(node.canvas)
-          }
+
+          if (unableCalcHeightOrWidth(sizerEl)) return;
+
+          node.resize({ width: node.width, height: sizerEl.innerHeight + 35 }),
+            node.render(),
+            plugin.debounceSaveCanvas(node.canvas)
+
         }, 100);
       }
     }
     if (v.docChanged || v.selectionSet) {
+      if (!plugin.settings.nodeAutoResize.autoResizeWidthSwitch && !plugin.settings.nodeAutoResize.autoResizeHeightSwitch) return;
+
       const editor = v.state.field(editorInfoField);
       const node = editor?.node;
 
       if (node?.canvas?.view && plugin.verifyCanvasLayout(node.canvas.view)) {
         const sizerEl = node?.child?.editMode?.sizerEl;
-        if (!sizerEl) return
+        
+        if (unableCalcHeightOrWidth(sizerEl)) return;
 
-        let existMermaid = sizerEl.querySelector(".HyperMD-codeblock") ||
-          sizerEl.querySelector(".cm-lang-mermaid") ||
-          sizerEl.querySelector("img")
-
-        if (existMermaid) return
-        const lines = sizerEl.querySelectorAll(".cm-line");
-        let maxWidth = 0;
-        for (const lineEl of lines) {
-          const width = plugin.getTextPixelWidthFromElement(lineEl);
-          if (width > maxWidth) maxWidth = width;
+        let finalWidth = node.width;
+        if (plugin.settings.nodeAutoResize.autoResizeWidthSwitch) {
+          const lines = sizerEl.querySelectorAll(".cm-line");
+          let maxWidth = 0;
+          for (const lineEl of lines) {
+            const width = plugin.getTextPixelWidthFromElement(lineEl);
+            if (width > maxWidth) maxWidth = width;
+          }
+          maxWidth += plugin.settings.nodeAutoResize.contentHorizontalPadding
+          finalWidth = plugin.settings.nodeAutoResize.maxWidth < 0 ? maxWidth : Math.min(maxWidth, plugin.settings.nodeAutoResize.maxWidth); // 最大宽度限制
         }
-        maxWidth += plugin.settings.nodeAutoResize.contentHorizontalPadding
-        const finalWidth = plugin.settings.nodeAutoResize.maxWidth < 0 ? maxWidth : Math.min(maxWidth, plugin.settings.nodeAutoResize.maxWidth); // 最大宽度限制
-        node.resize({ width: finalWidth, height: 1 }),
-          node.render(),
+
+        node.resize({ width: finalWidth, height: plugin.settings.nodeAutoResize.autoResizeHeightSwitch ? 1 : node.height }),
+          node.render();
+        if (plugin.settings.nodeAutoResize.autoResizeHeightSwitch) {
           node.resize({ width: node.width, height: sizerEl.innerHeight + 35 }),
-          node.render(),
-          plugin.debounceSaveCanvas(node.canvas);
+            node.render()
+        }
+        plugin.debounceSaveCanvas(node.canvas);
 
       }
     }
@@ -1289,14 +1312,44 @@ export default class CanvasMindmap extends Plugin {
         showPreview: (next) =>
           function (e: any) {
             next.call(this, e);
+
             if (e && this.node?.canvas?.view && self.verifyCanvasLayout(this.node.canvas.view)) {
               this.node.canvas.wrapperEl.focus();
               this.node.setIsEditing(false);
+              if (!self.settings.nodeAutoResize.autoResizeWidthSwitch && !self.settings.nodeAutoResize.autoResizeHeightSwitch) return;
               setTimeout(() => {
                 if (this.node.text?.trim().length > 0) {
-                  self.resizeNode(this.node, "left");
-                  new Promise(requestAnimationFrame);
-                  self.resizeNode(this.node, "bottom");
+                  const renderer = this.node?.child?.previewMode?.renderer
+                  let r = renderer?.previewEl;
+                  if (!r || !r.isShown())
+                    return;
+
+                  const sizerEl = renderer?.sizerEl
+                  if (!sizerEl ||
+                    sizerEl.querySelector(".el-pre") ||
+                    sizerEl.querySelector("img") ||
+                    sizerEl.querySelector(".external-link") ||
+                    sizerEl.querySelector(".el-ul") ||
+                    sizerEl.querySelector(".el-ol") ||
+                    sizerEl.querySelector(".el-h1") ||
+                    sizerEl.querySelector(".el-h2") ||
+                    sizerEl.querySelector(".el-h3") ||
+                    sizerEl.querySelector(".el-h4") ||
+                    sizerEl.querySelector(".el-h5") ||
+                    sizerEl.querySelector(".el-h6") ||
+                    sizerEl.querySelector(".el-table") ||
+                    sizerEl.querySelector(".footnote-ref") ||
+                    sizerEl.querySelector(".math")
+                  )
+                    return;
+
+                  if (self.settings.nodeAutoResize.autoResizeWidthSwitch) {
+                    self.resizeNode(this.node, "left");
+                    new Promise(requestAnimationFrame);
+                  }
+                  if (self.settings.nodeAutoResize.autoResizeHeightSwitch) {
+                    self.resizeNode(this.node, "bottom");
+                  }
                 }
                 self.autoLayout(this.node.canvas, this.node)
               }, 100);
@@ -1436,7 +1489,7 @@ export default class CanvasMindmap extends Plugin {
       return 0
     }
     const sizerEl = renderer?.sizerEl
-    if (!sizerEl || sizerEl.querySelector(".el-pre") || sizerEl.querySelector("img")) return 0
+    if (!sizerEl) return 0
 
     const lines = sizerEl.children;
     if (lines.length === 0) return 0
@@ -1446,7 +1499,7 @@ export default class CanvasMindmap extends Plugin {
       const width = this.getLongestLineWidthFromElement(lineEl);
       if (width > maxWidth) maxWidth = width;
     }
-    maxWidth += this.settings.nodeAutoResize.contentHorizontalPadding
+    maxWidth += this.settings.nodeAutoResize.contentHorizontalPadding + 1
     const finalWidth = this.settings.nodeAutoResize.maxWidth < 0 ? maxWidth : Math.min(maxWidth, this.settings.nodeAutoResize.maxWidth); // 最大宽度限制
 
     node.resize({
