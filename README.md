@@ -41,5 +41,5 @@ WeChat: smallconantong
 ### ko-fi
 [<img src="https://storage.ko-fi.com/cdn/logomarkLogo.png" width="100">](https://ko-fi.com/conantong02)
 ### wechat
-<img width="400" height="400" alt="mm_reward_qrcode_1760682528374" src="https://github.com/user-attachments/assets/78ddd207-1fe7-4855-af0e-d59554705e64" />
+<img width="400" height="380" alt="mm_reward_qrcode_1760682528374(1)" src="https://github.com/user-attachments/assets/111ad665-4a24-4b29-8ee4-b704ff06e409" />
 
