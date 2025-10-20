@@ -39,9 +39,9 @@ declare module 'obsidian' {
   }
 }
 
-const unableCalcHeightOrWidth = (sizerEl : any) => {
+const unableCalcHeightOrWidth = (sizerEl: any) => {
   return !sizerEl ||
-     sizerEl.querySelector(".HyperMD-codeblock") ||
+    sizerEl.querySelector(".HyperMD-codeblock") ||
     sizerEl.querySelector(".cm-lang-mermaid") ||
     sizerEl.querySelector("img") ||
     sizerEl.querySelector(".HyperMD-list-line") ||
@@ -83,7 +83,6 @@ const updateNodeSize = (plugin: CanvasMindmap) => {
 
       if (node?.canvas?.view && plugin.verifyCanvasLayout(node.canvas.view)) {
         const sizerEl = node?.child?.editMode?.sizerEl;
-        
         if (unableCalcHeightOrWidth(sizerEl)) return;
 
         let finalWidth = node.width;
@@ -880,8 +879,6 @@ export default class CanvasMindmap extends Plugin {
       const horizontalGap = this.settings.layout.horizontalGap; // 水平间距
       const verticalGap = this.settings.layout.verticalGap; // 垂直间距
 
-      let nodeHeightMap = this.getSubtreeHeightMap(nodeMap, childrenMap, rootIds, verticalGap);
-
       // 从根节点开始布局
       // 排序根节点，按 y 坐标升序
       rootIds.sort((a, b) => {
@@ -889,13 +886,17 @@ export default class CanvasMindmap extends Plugin {
         const nodeB = nodeMap.get(b);
         return (nodeA?.y ?? 0) - (nodeB?.y ?? 0);
       });
+      let nodeHeightMap = this.getSubtreeHeightMap(nodeMap, childrenMap, rootIds, verticalGap);
+
       const rootNode = nodeMap.get(rootIds[0])
       const treeHeight = nodeHeightMap.get(rootIds[0]) || rootNode.height;
 
       let startY = rootNode.y + (rootNode.height - treeHeight) / 2;
 
+      const visited = new Set<string>(); // 用于检测环路
+
       for (const rootId of rootIds) {
-        this.layoutNode(rootId, rootNode.x, startY, nodeMap, nodeHeightMap, childrenMap, horizontalGap, verticalGap);
+        this.layoutNode(rootId, rootNode.x, startY, nodeMap, nodeHeightMap, childrenMap, horizontalGap, verticalGap, visited);
         const rootHeight = nodeHeightMap.get(rootId) || 0;
         startY += rootHeight + verticalGap;
       }
@@ -953,7 +954,8 @@ export default class CanvasMindmap extends Plugin {
 
       let startY = rootNode.y + (rootNode.height - treeHeight) / 2;
 
-      this.layoutNode(rootId, rootNode.x, startY, nodeMap, nodeHeightMap, childrenMap, horizontalGap, verticalGap);
+      const visited2 = new Set<string>(); // 用于检测环路
+      this.layoutNode(rootId, rootNode.x, startY, nodeMap, nodeHeightMap, childrenMap, horizontalGap, verticalGap, visited2);
 
       canvas.importData({
         nodes: data.nodes,
@@ -997,8 +999,7 @@ export default class CanvasMindmap extends Plugin {
   }
 
   private layoutNode(rootId: string, startX: number, startY: number, nodeMap: Map<string, any>, nodeHeightMap: Map<string, number>,
-    childrenMap: Record<string, string[]>, horizontalGap: number, verticalGap: number) {
-    const visited = new Set<string>(); // 用于检测环路
+    childrenMap: Record<string, string[]>, horizontalGap: number, verticalGap: number, visited: Set<string>) {
 
     // 递归布局函数，调整节点位置，不返回高度
     const layoutNode = (nodeId: string, x: number, y: number) => {
@@ -1036,15 +1037,15 @@ export default class CanvasMindmap extends Plugin {
         currentY = y + (node.height - subTreeHeight) / 2;
       }
 
-      const sortedChildrenIds = children
-        .filter((id: string) => nodeMap.has(id))       // 先过滤掉不存在的节点
-        .sort((a: string, b: string) => {
-          const nodeA = nodeMap.get(a);
-          const nodeB = nodeMap.get(b);
-          return (nodeA?.y ?? 0) - (nodeB?.y ?? 0);    // 按 y 轴升序
-        });
+      // const sortedChildrenIds = children
+      //   .filter((id: string) => nodeMap.has(id))       // 先过滤掉不存在的节点
+      //   .sort((a: string, b: string) => {
+      //     const nodeA = nodeMap.get(a);
+      //     const nodeB = nodeMap.get(b);
+      //     return (nodeA?.y ?? 0) - (nodeB?.y ?? 0);    // 按 y 轴升序
+      //   });
 
-      for (const childId of sortedChildrenIds) {
+      for (const childId of children) {
         const childHeight = nodeHeightMap.get(childId);
         if (!childHeight) continue;
         // 递归布局子节点，横向偏移，纵向位置为currentY
@@ -1071,13 +1072,24 @@ export default class CanvasMindmap extends Plugin {
       if (!node) return 0;
 
       const children = childrenMap[id] || [];
-      if (children.length === 0) {
+      // 过滤掉已经访问过的子节点
+      const filteredChildren = children
+        .filter(childId => !visited.has(childId))
+        .sort((a: string, b: string) => {
+          const nodeA = nodeMap.get(a);
+          const nodeB = nodeMap.get(b);
+          return (nodeA?.y ?? 0) - (nodeB?.y ?? 0);    // 按 y 轴升序
+        })
+
+      childrenMap[id] = filteredChildren;
+
+      if (filteredChildren.length === 0) {
         heightMap.set(id, node.height);
         return node.height;
       }
 
       let treeHeight = 0
-      for (const childId of children) {
+      for (const childId of filteredChildren) {
         const childNode = nodeMap.get(childId);
         if (!childNode) continue;
 
