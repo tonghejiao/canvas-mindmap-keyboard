@@ -84,7 +84,7 @@ export const DEFAULT_SETTINGS: MindMapSettings = {
 		autoResizeHeightSwitch: true, // 是否开启节点自动高度
 		maxLine: -1, // 节点自动增高的最大行数，超过后不再自动增高
 		maxWidth: 380,
-		contentHorizontalPadding: 35,
+		contentHorizontalPadding: Platform.isMacOS ? 38 : 35,
 	},
 	hotkey: {
 		createChildNode: { modifiers: "", key: "Tab", enabled: true },

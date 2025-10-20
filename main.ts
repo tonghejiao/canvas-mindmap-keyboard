@@ -3,8 +3,12 @@ import { around } from "monkey-around";
 import { DEFAULT_SETTINGS, MindMapSettings, MindMapSettingTab, AutomaticLayoutLevel } from "mindMapSettings";
 import { EditorView, ViewUpdate } from "@codemirror/view";
 
-function generateId() {
-  return Math.random().toString(36).substr(2, 10);
+function generateId(canvas: any) {
+  let id = Math.random().toString(36).substr(2, 10);
+  while (canvas.nodes.has(id) || canvas.edges.has(id)) {
+    id = Math.random().toString(36).substr(2, 10);
+  }
+  return id;
 }
 
 interface CanvasNode {
@@ -46,7 +50,7 @@ const unableCalcHeightOrWidth = (sizerEl: any) => {
     sizerEl.querySelector("img") ||
     sizerEl.querySelector(".HyperMD-list-line") ||
     sizerEl.querySelector(".cm-embed-block") ||
-    sizerEl.querySelector(".HyperMD-header") ||
+    // sizerEl.querySelector(".HyperMD-header") ||
     sizerEl.querySelector(".external-link") ||
     sizerEl.querySelector(".footnote-ref") ||
     sizerEl.querySelector(".hr") ||
@@ -85,6 +89,17 @@ const updateNodeSize = (plugin: CanvasMindmap) => {
         const sizerEl = node?.child?.editMode?.sizerEl;
         if (unableCalcHeightOrWidth(sizerEl)) return;
 
+        let padding = plugin.settings.nodeAutoResize.contentHorizontalPadding
+        const el = sizerEl.querySelector(".cm-gutters");
+        if (el) {
+          const style = window.getComputedStyle(el);
+
+          const marginLeft = parseFloat(style.marginLeft);
+          const marginRight = parseFloat(style.marginRight);
+
+          padding += el.offsetWidth + marginLeft + marginRight + 5;
+        }
+
         let finalWidth = node.width;
         if (plugin.settings.nodeAutoResize.autoResizeWidthSwitch) {
           const lines = sizerEl.querySelectorAll(".cm-line");
@@ -93,7 +108,7 @@ const updateNodeSize = (plugin: CanvasMindmap) => {
             const width = plugin.getTextPixelWidthFromElement(lineEl);
             if (width > maxWidth) maxWidth = width;
           }
-          maxWidth += plugin.settings.nodeAutoResize.contentHorizontalPadding
+          maxWidth += padding
           finalWidth = plugin.settings.nodeAutoResize.maxWidth < 0 ? maxWidth : Math.min(maxWidth, plugin.settings.nodeAutoResize.maxWidth); // 最大宽度限制
         }
 
@@ -334,7 +349,7 @@ export default class CanvasMindmap extends Plugin {
 
 
 
-    const childId = generateId();
+    const childId = generateId(canvas);
     const newNode = {
       id: childId,
       parent: focusedNodeId,
@@ -349,7 +364,7 @@ export default class CanvasMindmap extends Plugin {
 
     // Add a new edge connecting parent and child
     const newEdge = {
-      id: generateId(),
+      id: generateId(canvas),
       fromNode: focusedNodeId,
       toNode: childId,
       fromSide: "right", // 父节点右边
@@ -400,7 +415,7 @@ export default class CanvasMindmap extends Plugin {
 
     const verticalGap = this.layoutLevelIsCanvas(canvas) || parentNode ? 0 : this.settings.layout.verticalGap
     // 新同级节点位置在当前节点下方
-    const siblingId = generateId();
+    const siblingId = generateId(canvas);
     const newNode = {
       id: siblingId,
       parent: parentNodeId,
@@ -415,7 +430,7 @@ export default class CanvasMindmap extends Plugin {
 
     // 添加新边连接父节点和新同级节点
     const newEdge = {
-      id: generateId(),
+      id: generateId(canvas),
       fromNode: parentNodeId,
       toNode: siblingId,
       fromSide: "right", // 父节点右边
@@ -862,6 +877,7 @@ export default class CanvasMindmap extends Plugin {
       // 构建父子关系
       const childrenMap: Record<string, string[]> = {};
       edges.forEach((e: any) => {
+        if (e.color) return; // 跳过彩色边
         if (!childrenMap[e.fromNode]) childrenMap[e.fromNode] = [];
         childrenMap[e.fromNode].push(e.toNode);
       });
@@ -928,6 +944,7 @@ export default class CanvasMindmap extends Plugin {
       // 构建父子关系
       const childrenMap: Record<string, string[]> = {};
       edges.forEach((e: any) => {
+        if (e.color) return; // 跳过彩色边
         if (!childrenMap[e.fromNode]) childrenMap[e.fromNode] = [];
         childrenMap[e.fromNode].push(e.toNode);
       });
@@ -1343,12 +1360,12 @@ export default class CanvasMindmap extends Plugin {
                     sizerEl.querySelector(".external-link") ||
                     sizerEl.querySelector(".el-ul") ||
                     sizerEl.querySelector(".el-ol") ||
-                    sizerEl.querySelector(".el-h1") ||
-                    sizerEl.querySelector(".el-h2") ||
-                    sizerEl.querySelector(".el-h3") ||
-                    sizerEl.querySelector(".el-h4") ||
-                    sizerEl.querySelector(".el-h5") ||
-                    sizerEl.querySelector(".el-h6") ||
+                    // sizerEl.querySelector(".el-h1") ||
+                    // sizerEl.querySelector(".el-h2") ||
+                    // sizerEl.querySelector(".el-h3") ||
+                    // sizerEl.querySelector(".el-h4") ||
+                    // sizerEl.querySelector(".el-h5") ||
+                    // sizerEl.querySelector(".el-h6") ||
                     sizerEl.querySelector(".el-table") ||
                     sizerEl.querySelector(".footnote-ref") ||
                     sizerEl.querySelector(".math")
@@ -1508,7 +1525,9 @@ export default class CanvasMindmap extends Plugin {
     let maxWidth = 0;
 
     for (const lineEl of lines) {
-      const width = this.getLongestLineWidthFromElement(lineEl);
+      if (lineEl.children.length === 0) continue;
+
+      const width = this.getLongestLineWidthFromElement(lineEl.children[0]);
       if (width > maxWidth) maxWidth = width;
     }
     maxWidth += this.settings.nodeAutoResize.contentHorizontalPadding + 1
