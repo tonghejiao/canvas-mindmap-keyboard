@@ -36,6 +36,7 @@ WeChat: smallconantong
 - The name of the modified key: Ctrl Shift Alt Mod (mod is cmd in macos, and ctrl in other systems)
 - Special key name: ArrowUp ArrowDown ArrowLeft ArrowRight
 - Using Alt as a modifier key often fails in macos. The reason may be that alt+ characters in the input method will be converted into special characters, so it is not recommended to use shortcuts with alt in macos.
+- This plug-in judges the parent-child relationship through the primary color connection between nodes. If a node has two parent nodes, some accidents may occur in the layout. Please let one node have only one father, if there must be more than one. Please use colored wires to connect.
 
 ## Buy me a coffee
 ### ko-fi
