@@ -324,20 +324,13 @@ export default class CanvasMindmap extends Plugin {
     if (this.layoutLevelIsNo(canvas)) {
       newY = currentNode.y + currentNode.height / 2 - this.settings.creatNode.height / 2;
     } else {
-      // Find all children of the current node using canvas.getEdgesForNode for efficiency
-      const outgoingEdges = canvas.getEdgesForNode(currentNode).filter((e: any) =>
-        (e.from?.node?.id ?? e.fromNode) === focusedNodeId
-      );
-      const childIds = outgoingEdges.map((e: any) => e.to?.node?.id ?? e.toNode);
-      if (childIds.length > 0) {
+      const childNodes = this.getChildrenNodes(canvas, focusedNodeId);
+      if (childNodes.length > 0) {
         // Find the maximum y+height among children
         let maxBottom = -Infinity;
-        for (const childId of childIds) {
-          const childNode = canvas.nodes.get(childId);
-          if (childNode) {
-            const bottom = childNode.y + childNode.height;
-            if (bottom > maxBottom) maxBottom = bottom;
-          }
+        for (const childNode of childNodes) {
+          const bottom = childNode.y + childNode.height;
+          if (bottom > maxBottom) maxBottom = bottom;
         }
         // If no children found in nodes (shouldn't happen), fallback to parent y
         newY = (maxBottom > -Infinity ? maxBottom : currentNode.y);
@@ -352,7 +345,6 @@ export default class CanvasMindmap extends Plugin {
     const childId = generateId(canvas);
     const newNode = {
       id: childId,
-      parent: focusedNodeId,
       children: [],
       text: '',
       type: 'text',
@@ -523,6 +515,7 @@ export default class CanvasMindmap extends Plugin {
     //  构建 parent -> children 映射
     const childrenMap: Record<string, string[]> = {};
     edges.forEach((e: any) => {
+      if (e.color) return; // 仅考虑主色连接的边
       if (!childrenMap[e.fromNode]) childrenMap[e.fromNode] = [];
       childrenMap[e.fromNode].push(e.toNode);
     });
@@ -559,9 +552,16 @@ export default class CanvasMindmap extends Plugin {
 
   private getParentNode(canvas: any, nodeId: string): any {
     let selectedItem = canvas.nodes.get(nodeId);
-    let incomingEdges = canvas.getEdgesForNode(selectedItem).filter((e: any) => e.to.node.id === selectedItem.id);
+    let incomingEdges = canvas.getEdgesForNode(selectedItem).filter((e: any) => e.to.node.id === selectedItem.id && !e.color);
     let parentNode = incomingEdges.length > 0 ? incomingEdges[0].from.node : null;
     return parentNode
+  }
+
+  private getChildrenNodes(canvas: any, nodeId: string): any[] {
+    let selectedItem = canvas.nodes.get(nodeId);
+    let outgoingEdges = canvas.getEdgesForNode(selectedItem).filter((e: any) => e.from.node.id === selectedItem.id && !e.color);
+    let childrenNodes = outgoingEdges.map((e: any) => e.to.node);
+    return childrenNodes;
   }
 
   private getNavigateNodebyFocusNode(canvas: any, selectedItem: any, direction: string): any {
@@ -573,8 +573,7 @@ export default class CanvasMindmap extends Plugin {
         break;
       case 'ArrowRight':
         // 找到子节点（通过 edges）
-        const outgoingEdges = canvas.getEdgesForNode(selectedItem).filter((e: any) => e.from.node.id === selectedItem.id);
-        const childrenNodes = outgoingEdges.map((e: any) => e.to.node);
+        const childrenNodes = this.getChildrenNodes(canvas, selectedItem.id);
         // 移动到第一个子节点
         if (childrenNodes.length > 0) {
           // 找 y 轴最小的子节点
@@ -606,8 +605,8 @@ export default class CanvasMindmap extends Plugin {
           break;
         }
         // 有父节点，找兄弟节点
-        const siblingEdges = canvas.getEdgesForNode(parentNode).filter((e: any) => e.from.node.id === parentNode.id);
-        const siblings = siblingEdges.map((e: any) => e.to.node).sort((a: any, b: any) => a.y - b.y);
+        const siblingNodes = this.getChildrenNodes(canvas, parentNode.id)
+        const siblings = siblingNodes.sort((a: any, b: any) => a.y - b.y);
         const index = siblings.findIndex((n: { id: string }) => n.id === selectedItem.id);
         if (index === -1) break;
         if (direction === 'ArrowUp' && index > 0) targetNode = siblings[index - 1];
@@ -667,27 +666,42 @@ export default class CanvasMindmap extends Plugin {
     }
 
 
+    let nodes = [];
     if (direction === "ArrowRight") {
       const parentNode = this.getParentNode(canvas, currentNode.id);
       if (parentNode) {
         // 获取父节点的所有子节点（兄弟）
-        const siblingEdges = canvas.getEdgesForNode(parentNode).filter((e: any) => e.from.node.id === parentNode.id);
-        const siblings = siblingEdges.map((e: any) => e.to.node).filter((n: any) => n.id !== currentNode.id);
+        const childrenNodes = this.getChildrenNodes(canvas, parentNode.id);
+        const siblings = childrenNodes.filter((n: any) => n.id !== currentNode.id);
+        // 用于防止死循环
+        const visited = new Set<string>();
+        visited.add(currentNode.id);
+        const self = this;
 
-        // 遍历兄弟节点，检查是否有子节点
-        for (const sib of siblings) {
-          const outgoingEdges = canvas.getEdgesForNode(sib).filter((e: any) => e.from.node.id === sib.id);
-          const children = outgoingEdges.map((e: any) => e.to.node);
-          if (children.length > 0) {
-            // 找到第一个子节点直接返回
-            return children[0];
+        function collectDescendants(nodeId: string, canvas: any, visited: Set<string>): any[] {
+          const descendants: any[] = [];
+          if (visited.has(nodeId)) return descendants;
+          visited.add(nodeId);
+
+          const children = self.getChildrenNodes(canvas, nodeId);
+          for (const child of children) {
+            if (!visited.has(child.id)) {
+              descendants.push(child);
+              descendants.push(...collectDescendants(child.id, canvas, visited));
+            }
           }
+          return descendants;
+        }
+
+        // 收集所有兄弟节点的子孙节点
+        for (const sib of siblings) {
+          nodes.push(...collectDescendants(sib.id, canvas, visited));
         }
       }
     }
 
     // 获取所有节点
-    const nodes = Array.from(canvas.nodes.values() as CanvasNode[]).filter((n: any) => n.id !== currentNode.id);
+    nodes = nodes.length === 0 ? Array.from(canvas.nodes.values() as CanvasNode[]).filter((n: any) => n.id !== currentNode.id) : nodes;
     if (nodes.length === 0) return;
 
     let candidates = nodes.filter((node: any) => {
@@ -874,17 +888,18 @@ export default class CanvasMindmap extends Plugin {
       const nodeMap = new Map((data.nodes as CanvasNode[]).map((n: any) => [n.id, n]));
       const edges = data.edges;
 
+      const noColorEdges = edges.filter((e: any) => !e.color);
+
       // 构建父子关系
       const childrenMap: Record<string, string[]> = {};
-      edges.forEach((e: any) => {
-        if (e.color) return; // 跳过彩色边
+      noColorEdges.forEach((e: any) => {
         if (!childrenMap[e.fromNode]) childrenMap[e.fromNode] = [];
         childrenMap[e.fromNode].push(e.toNode);
       });
 
       // 找到根节点
       const allIds = Array.from(nodeMap.keys());
-      const childIds = edges.map((e: any) => e.toNode);
+      const childIds = noColorEdges.map((e: any) => e.toNode);
       const rootIds = allIds.filter(id => !childIds.includes(id));
 
       if (rootIds.length === 0) {
@@ -1053,14 +1068,6 @@ export default class CanvasMindmap extends Plugin {
       if (subTreeHeight < node.height) {
         currentY = y + (node.height - subTreeHeight) / 2;
       }
-
-      // const sortedChildrenIds = children
-      //   .filter((id: string) => nodeMap.has(id))       // 先过滤掉不存在的节点
-      //   .sort((a: string, b: string) => {
-      //     const nodeA = nodeMap.get(a);
-      //     const nodeB = nodeMap.get(b);
-      //     return (nodeA?.y ?? 0) - (nodeB?.y ?? 0);    // 按 y 轴升序
-      //   });
 
       for (const childId of children) {
         const childHeight = nodeHeightMap.get(childId);
@@ -1374,7 +1381,10 @@ export default class CanvasMindmap extends Plugin {
 
                   if (self.settings.nodeAutoResize.autoResizeWidthSwitch) {
                     self.resizeNode(this.node, "left");
-                    new Promise(requestAnimationFrame);
+                    if (self.settings.nodeAutoResize.autoResizeHeightSwitch) {
+                      new Promise(requestAnimationFrame);
+                      new Promise(requestAnimationFrame);
+                    }
                   }
                   if (self.settings.nodeAutoResize.autoResizeHeightSwitch) {
                     self.resizeNode(this.node, "bottom");
