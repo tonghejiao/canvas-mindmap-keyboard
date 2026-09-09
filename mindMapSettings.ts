@@ -37,6 +37,13 @@ export interface MindMapSettings {
 		maxWidth: number;
 		contentHorizontalPadding: number;
 	}
+	collapseEnabled: boolean;
+	collapsedNodes: { [key: string]: string[] };
+	collapseRelayoutScope: string; // "tree" | "canvas"
+	collapseColorExpanded: string;
+	collapseColorCollapsed: string;
+	dragReattachEnabled: boolean;
+	dragReattachOverlapRatio: number;
 	hotkey: {
 		createChildNode: Hotkey,
 		createSiblingNodeOrRootNode: Hotkey,
@@ -86,6 +93,13 @@ export const DEFAULT_SETTINGS: MindMapSettings = {
 		maxWidth: 380,
 		contentHorizontalPadding: Platform.isMacOS ? 40 : 35,
 	},
+	collapseEnabled: true,
+	collapsedNodes: {},
+	collapseRelayoutScope: "tree",
+	collapseColorExpanded: "#8b9aaf",
+	collapseColorCollapsed: "#18b8a6",
+	dragReattachEnabled: true,
+	dragReattachOverlapRatio: 0.3,
 	hotkey: {
 		createChildNode: { modifiers: "", key: "Tab", enabled: true },
 		createSiblingNodeOrRootNode: { modifiers: "", key: "Enter", enabled: true },
@@ -312,6 +326,68 @@ export class MindMapSettingTab extends PluginSettingTab {
 					}
 				}, 500))
 			);
+		containerEl.createEl('h2', { text: 'collapse / expand (fold & drag re-parent)' });
+		new Setting(containerEl)
+			.setName('Enable collapse / expand')
+			.setDesc('Show a +/− button on any node that has children. − collapses the whole subtree; + expands only the next level. Right-click a node for 折叠 / 展开 / 展开下级. The collapsed state is saved per canvas file.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.collapseEnabled)
+				.onChange(async (value) => {
+					this.plugin.settings.collapseEnabled = value;
+					await this.plugin.saveSettings();
+					const leaves = this.plugin.app.workspace.getLeavesOfType("canvas");
+					leaves.forEach((leaf) => {
+						const cv = leaf.view;
+						if (cv && cv.canvas) {
+							this.plugin.injectCollapseButtons(cv.canvas);
+							this.plugin.applyCollapseVisibility(cv.canvas);
+						}
+					});
+				}));
+		new Setting(containerEl)
+			.setName('Relayout scope after collapse / expand')
+			.setDesc('Which nodes get re-arranged after a collapse/expand action. "Only the affected tree" (default) keeps every other node — including loose nodes and other trees — exactly where it is; "Whole canvas" re-arranges all root nodes and trees.')
+			.addDropdown(dropdown => {
+				dropdown.addOption("tree", "Only the affected tree (recommended)");
+				dropdown.addOption("canvas", "Whole canvas");
+				dropdown
+					.setValue(this.plugin.settings.collapseRelayoutScope || "tree")
+					.onChange(async (value) => {
+						this.plugin.settings.collapseRelayoutScope = value;
+						await this.plugin.saveSettings();
+					});
+			});
+		new Setting(containerEl)
+			.setName('Drag a node onto another to re-parent it')
+			.setDesc('Drag node A (with its whole subtree) over node B: A is detached from its old parent and appended as B\'s last child. Dragging onto A\'s own parent (or any ancestor) does nothing. Enable this on touch devices to re-arrange the tree without a keyboard.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.dragReattachEnabled)
+				.onChange(async (value) => {
+					this.plugin.settings.dragReattachEnabled = value;
+					await this.plugin.saveSettings();
+				}));
+		new Setting(containerEl)
+			.setName('Expanded button color')
+			.setDesc('Background color of the + (expand) button shown on a collapsed node.')
+			.addColorPicker(picker => picker
+				.setValue(this.plugin.settings.collapseColorExpanded)
+				.onChange(async (value) => {
+					this.plugin.settings.collapseColorExpanded = value;
+					await this.plugin.saveSettings();
+					this.plugin.refreshCollapseButtonStyles();
+				}));
+		new Setting(containerEl)
+			.setName('Collapsed button color')
+			.setDesc('Background color of the − (collapse) button shown on an expanded node.')
+			.addColorPicker(picker => picker
+				.setValue(this.plugin.settings.collapseColorCollapsed)
+				.onChange(async (value) => {
+					this.plugin.settings.collapseColorCollapsed = value;
+					await this.plugin.saveSettings();
+					this.plugin.refreshCollapseButtonStyles();
+				}));
+
+
 
 		containerEl.createEl('h2', { text: 'hotkey' });
 		containerEl.createEl('p', { text: 'After modification, it needs to be restarted before it will take effect.' });
