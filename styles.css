@@ -13,3 +13,60 @@ If your plugin does not need CSS, delete this file.
 .markdown-source-view.mod-inside-iframe>.cm-editor>.cm-scroller {
     padding-right: calc(16px - var(--scrollbar-width, 0px));
 }
+
+/* ============================================================
+   Collapse / expand toggle for canvas mindmap nodes
+   Positioned at TOP-RIGHT corner of the .canvas-node container.
+   ============================================================ */
+.mm-collapse-btn {
+    position: absolute !important;
+    right: 2px !important;
+    top: 2px !important;
+    width: 20px !important;
+    height: 20px !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    padding-bottom: 2px !important;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+    z-index: 9999 !important;
+    user-select: none !important;
+    opacity: 0 !important;
+    color: #ffffff !important;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4) !important;
+    transition: opacity 0.12s ease, transform 0.15s ease !important;
+    /* background-color is set inline from settings */
+}
+
+/* Show when hovering the node or when node is focused/selected */
+.canvas-node:hover .mm-collapse-btn,
+.canvas-node.is-focused .mm-collapse-btn,
+.canvas-node.is-selected .mm-collapse-btn {
+    opacity: 1 !important;
+}
+
+/* Collapsed nodes: always show the + button brightly */
+.mm-collapse-btn.collapsed {
+    opacity: 1 !important;
+}
+
+/* Hover over button itself: slight scale pop */
+.mm-collapse-btn:hover {
+    transform: scale(1.2) !important;
+}
+
+/* ============================================================
+   Drag-to-re-parent: highlight the node that will become
+   the new parent while dragging another node over it.
+   ============================================================ */
+.canvas-node.mm-drop-target>.canvas-node-container {
+    outline: 3px solid var(--interactive-accent, #7f6df2) !important;
+    outline-offset: 3px !important;
+    border-radius: var(--radius-s, 4px) !important;
+    box-shadow: 0 0 0 6px rgba(127, 109, 242, 0.18) !important;
+}
