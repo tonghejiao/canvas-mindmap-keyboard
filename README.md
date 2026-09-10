@@ -135,17 +135,3 @@ Right-click any canvas node to get 5 actions:
 - **Drag-to-re-parent uses primary-color edges too.** A re-parented node keeps colored cross-links intact; only the primary parent edge is re-pointed.
 
 ---
-
-## Contact / 联系
-
-**EN** — WeChat: smallconantong
-
-**中文** — 微信：smallconantong
-
-## Buy me a coffee / 请我喝杯咖啡
-
-### ko-fi
-[<img src="https://storage.ko-fi.com/cdn/logomarkLogo.png" width="100">](https://ko-fi.com/conantong02)
-
-### wechat / 微信
-<img width="400" height="380" alt="mm_reward_qrcode" src="https://github.com/user-attachments/assets/111ad665-4a24-4b29-8ee4-b704ff06e409" />
