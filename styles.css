@@ -70,3 +70,188 @@ If your plugin does not need CSS, delete this file.
     border-radius: var(--radius-s, 4px) !important;
     box-shadow: 0 0 0 6px rgba(127, 109, 242, 0.18) !important;
 }
+
+/* ============================================================
+   Checklist progress indicator for canvas nodes
+   ============================================================ */
+.mm-checklist-progress {
+    position: absolute;
+    pointer-events: none;
+    z-index: 9998;
+    user-select: none;
+}
+
+/* Bar mode: a true CAPSULE (pill) progress bar floating just above the node's
+   top edge. It does NOT cover the node's content. Two clearly coloured
+   segments — done (left) + todo (right) — so completed vs. remaining is always
+   visible.
+   - BOTH ends are full semicircles: border-radius = half the bar height, so
+     the silhouette is a pill (no "rounded top / square bottom" look).
+   - Each segment is filled with TONAL diagonal striations (light / base / dark
+     shades of the SAME configured colour) to mimic salmon flesh.
+   - --mm-bar-length (default 95%) shortens the bar so its rounded ends clear
+     the node corners; --mm-bar-gap lifts it clear of the node's top border. */
+.mm-checklist-progress-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(-1 * (var(--mm-checklist-bar-height, 8px) + var(--mm-bar-gap, 6px)));
+    height: var(--mm-checklist-bar-height, 8px);
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+}
+
+/* Pill host: a box whose width IS the bar length, centred above the node. The
+   capsule fills it, and the junction badge is positioned inside it — so the
+   badge and the done segment use the SAME percentage base and the badge can
+   never drift away from the done/todo seam. */
+.mm-checklist-progress-bar-pill-host {
+    position: relative;
+    flex: 0 0 auto;
+    width: var(--mm-bar-length, 95%);
+    height: 100%;
+}
+
+.mm-checklist-progress-bar-capsule {
+    position: absolute;
+    inset: 0;
+    /* Pill: radius = half the bar height → left/right ends are true semicircles
+       on ALL four corners (never top-only). */
+    border-radius: calc(var(--mm-checklist-bar-height, 8px) / 2);
+    background: var(--mm-todo, #ff6b6b);
+    overflow: hidden;
+    isolation: isolate;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+/* Glassy top lip, painted ABOVE the fill so the pill reads as a 3D capsule
+   on every theme. */
+.mm-checklist-progress-bar-capsule::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 2;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.30), inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+}
+
+.mm-checklist-progress-bar-track {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    border-radius: inherit;
+    overflow: hidden;
+}
+
+.mm-checklist-progress-bar-done,
+.mm-checklist-progress-bar-todo {
+    height: 100%;
+    flex: 0 0 auto;
+    transition: width 0.2s ease;
+}
+
+/* Salmon-flesh striations: alternating LIGHT / BASE / DARK shades of the very
+   same configured colour (not a white wash), at 45°, so each segment shows a
+   fine tonal hatch. If color-mix() is unavailable the gradient is dropped and
+   the solid base colour remains. */
+.mm-checklist-progress-bar-done {
+    --mm-bar-c: var(--mm-done, #51cf66);
+    --mm-bar-c-lt: color-mix(in srgb, var(--mm-bar-c) 58%, #ffffff);
+    --mm-bar-c-dk: color-mix(in srgb, var(--mm-bar-c) 80%, #000000);
+    background-color: var(--mm-bar-c);
+    background-image: repeating-linear-gradient(45deg,
+            var(--mm-bar-c-lt) 0 3px,
+            var(--mm-bar-c) 3px 6px,
+            var(--mm-bar-c-dk) 6px 8px,
+            var(--mm-bar-c) 8px 12px);
+}
+
+.mm-checklist-progress-bar-todo {
+    --mm-bar-c: var(--mm-todo, #ff6b6b);
+    --mm-bar-c-lt: color-mix(in srgb, var(--mm-bar-c) 58%, #ffffff);
+    --mm-bar-c-dk: color-mix(in srgb, var(--mm-bar-c) 80%, #000000);
+    background-color: var(--mm-bar-c);
+    background-image: repeating-linear-gradient(45deg,
+            var(--mm-bar-c-lt) 0 3px,
+            var(--mm-bar-c) 3px 6px,
+            var(--mm-bar-c-dk) 6px 8px,
+            var(--mm-bar-c) 8px 12px);
+}
+
+/* Small label used by PIE mode (the percentage centred under the pie chart).
+   Bar mode no longer uses this class: its percentage and `n/N` count are merged
+   into ONE `.mm-checklist-progress-junction-label` badge floating above the bar
+   (see below), so it never sits inside the node frame where resizing the node
+   could overlap the text or the border line. */
+.mm-checklist-progress-label {
+    position: absolute;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--text-normal);
+    background: rgba(var(--background-primary-rgb), 0.9);
+    padding: 1px 4px;
+    border-radius: 3px;
+    white-space: nowrap;
+    z-index: 10001;
+}
+
+/* Combined badge: `33%=2/6` (percentage + count, joined by "="), floating just
+   above the done/todo seam and following it as the completion ratio changes.
+   It lives INSIDE .mm-checklist-progress-bar-pill-host (whose width = bar
+   length), and the plugin writes `left` inline as `ratio * 100%` — the exact
+   same value the done segment's width uses, so the badge is always directly
+   above the seam. Because it sits ABOVE the bar — i.e. outside the node frame —
+   it can never overlap the node's text or border, whatever the node's height.
+   `left: 50%` is only a fallback for a stale cached stylesheet. */
+.mm-checklist-progress-junction-label {
+    position: absolute;
+    bottom: calc(100% + 3px);
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--text-normal);
+    background: rgba(var(--background-primary-rgb), 0.9);
+    padding: 1px 4px;
+    border-radius: 3px;
+    white-space: nowrap;
+    z-index: 10001;
+    pointer-events: none;
+}
+
+/* Pie chart mode: pinned at the top-left corner of the node */
+.mm-checklist-progress-pie {
+    left: 4px;
+    top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+/*
+ * Gap between the pie chart and the node text.
+ * Only HALF a pie-chart width is reserved here; the node content keeps its own
+ * default padding, so the text ends up snug against the chart.
+ * --mm-checklist-pie-w is set by the plugin to the configured pie size.
+ */
+.mm-checklist-pie-mode .canvas-node-content {
+    padding-left: calc(var(--mm-checklist-pie-w, 14px) / 2) !important;
+}
+
+.mm-checklist-progress-pie svg {
+    display: block;
+}
+
+.mm-checklist-progress-pie .mm-checklist-progress-label {
+    background: transparent;
+    padding: 0;
+    /* Centre the percentage under the pie chart so its midline aligns with the chart's midline */
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    top: calc(100% + 2px);
+    text-align: center;
+}

@@ -5,11 +5,24 @@
 // applyCollapseVisibility, refreshCollapseButtonStyles, setupDragReattach, …) into
 // your fully-typed CanvasMindmap class, you can remove this header and type-check
 // normally. esbuild (the actual bundler) ignores it.
-import { Plugin, editorInfoField, debounce } from 'obsidian';
+import { Plugin, Notice, editorInfoField, debounce } from 'obsidian';
 import * as import_obsidian from 'obsidian';
 import { around } from "monkey-around";
 import { DEFAULT_SETTINGS, MindMapSettings, MindMapSettingTab, AutomaticLayoutLevel } from "./mindMapSettings";
 import { EditorView, ViewUpdate } from "@codemirror/view";
+
+/**
+ * Build tag — bump this on every shipped change.
+ *
+ * Obsidian keeps the previously-loaded main.js in memory until the plugin is
+ * disabled+re-enabled (or the app is restarted), so "I changed the file on disk
+ * but nothing happened" is very easy to hit. This tag makes the running bundle
+ * identifiable three ways:
+ *   1. command palette → "显示插件构建版本 / show plugin build tag"
+ *   2. DevTools console → "[canvas-mindmap-keyboard] loaded build: …"
+ *   3. `document.body.dataset.mmBuild` in the DevTools console
+ */
+const MM_BUILD_TAG = "1.1.9 / 2026-09-12d / merged-badge+reload-safe";
 
 function generateId(canvas: any) {
   let id = Math.random().toString(36).substr(2, 10);
@@ -133,12 +146,183 @@ const updateNodeSize = (plugin: CanvasMindmap) => {
   });
 };
 
+function parseChecklistProgress(text) {
+  if (!text || typeof text !== "string")
+    return null;
+  const lines = text.split(/\r?\n/);
+  let total = 0;
+  let checked = 0;
+  const checkboxRegex = /^([-*]|\d+\.)\s+\[[ xX]\]/;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!checkboxRegex.test(trimmed))
+      continue;
+    total++;
+    if (trimmed.includes("[x]") || trimmed.includes("[X]"))
+      checked++;
+  }
+  if (total === 0)
+    return null;
+  return { checked, total, ratio: checked / total };
+}
+
+function createProgressBar(progress, settings, el) {
+  const cfg = settings.checklistProgress || {};
+  const height = cfg.barHeight || 8;
+  const lengthPct = cfg.barLength != null ? cfg.barLength : 95;
+  const doneColor = cfg.barColorDone || "#51cf66";
+  const todoColor = cfg.barColorTodo || "#ff6b6b";
+  const wrap = document.createElement("div");
+  wrap.className = "mm-checklist-progress mm-checklist-progress-bar";
+  wrap.style.setProperty("--mm-checklist-bar-height", `${height}px`);
+  wrap.style.setProperty("--mm-bar-length", `${lengthPct}%`);
+  wrap.style.setProperty("--mm-done", doneColor);
+  wrap.style.setProperty("--mm-todo", todoColor);
+  // Capsule (pill) progress bar: a rounded-pill track centred above the node.
+  // Two clearly distinct segments — done (left) + todo (right) — so the
+  // completed vs. remaining parts are always distinguishable. The pill's own
+  // rounded ends mean the node's own corner radius no longer matters; making
+  // the bar shorter (barLength) easily avoids the node corners.
+  //
+  // KEY: the capsule and the percentage badge live inside `pillHost`, a box
+  // whose width IS the bar length. Both therefore share one coordinate system:
+  // the done segment is `ratio * 100%` of pillHost and the badge is placed at
+  // `ratio * 100%` of pillHost — so the badge always sits exactly above the
+  // done/todo seam, no matter the node width, padding, or bar length.
+  const pillHost = document.createElement("div");
+  pillHost.className = "mm-checklist-progress-bar-pill-host";
+  const capsule = document.createElement("div");
+  capsule.className = "mm-checklist-progress-bar-capsule";
+  const track = document.createElement("div");
+  track.className = "mm-checklist-progress-bar-track";
+  const done = document.createElement("div");
+  done.className = "mm-checklist-progress-bar-done";
+  done.style.width = `${progress.ratio * 100}%`;
+  const todo = document.createElement("div");
+  todo.className = "mm-checklist-progress-bar-todo";
+  todo.style.width = `${(1 - progress.ratio) * 100}%`;
+  track.appendChild(done);
+  track.appendChild(todo);
+  capsule.appendChild(track);
+  pillHost.appendChild(capsule);
+  // ONE combined badge lives ABOVE the bar, inside `pillHost`. Its horizontal
+  // anchor is `ratio * 100%` of the pill — the SAME percentage base the done
+  // segment's width uses — so the badge stays centred exactly over the
+  // completed/remaining seam and follows it as the ratio changes, no matter the
+  // node width, padding or bar length.
+  //
+  // The percentage and the `n/N` count are a SINGLE label joined by "=" (e.g.
+  // `33%=2/6`) instead of two labels stacked above and below the bar. The old
+  // below-bar counter lived INSIDE the node frame, so enlarging or shrinking
+  // the node could push it onto the node text or the border line. Keeping the
+  // merged badge ABOVE the bar — entirely outside the frame — makes it immune
+  // to node size: it can never overlap the node's content or border.
+  const seamPct = `${(progress.ratio * 100).toFixed(2)}%`;
+  const showCount = cfg.showCount !== false;
+  const showPct = cfg.showPercentAtJunction === true;
+  if (showPct || showCount) {
+    const parts = [];
+    if (showPct)
+      parts.push(`${Math.round(progress.ratio * 100)}%`);
+    if (showCount)
+      parts.push(`${progress.checked}/${progress.total}`);
+    const badge = document.createElement("span");
+    badge.className = "mm-checklist-progress-junction-label";
+    badge.textContent = parts.join("=");
+    // The badge is centred on the done/todo seam with `left` + `translateX(-50%)`,
+    // using the SAME percentage base as the done segment's width, so it is always
+    // exactly above the junction (e.g. `83%=5/6`) however the bar is configured.
+    //
+    // At the two extremes the seam sits exactly ON the pill's rounded end, so
+    // centring would push half the badge past the node's left/right edge and let
+    // it float over the empty canvas. There we flush the badge instead: `0%` →
+    // left-aligned with the pill's left end, `100%` → right-aligned with its
+    // right end. The pill is 95% of the node width, so the badge stays fully
+    // inside the node either way. Written INLINE so a stale cached stylesheet
+    // can never win.
+    if (progress.ratio <= 0) {
+      badge.style.left = "0%";
+      badge.style.right = "auto";
+      badge.style.transform = "none";
+    } else if (progress.ratio >= 1) {
+      badge.style.left = "auto";
+      badge.style.right = "0%";
+      badge.style.transform = "none";
+    } else {
+      badge.style.left = seamPct;
+      badge.style.right = "auto";
+      badge.style.transform = "translateX(-50%)";
+    }
+    pillHost.appendChild(badge);
+  }
+  wrap.appendChild(pillHost);
+  return wrap;
+}
+
+function createProgressPie(progress, settings) {
+  const cfg = settings.checklistProgress || {};
+  const size = cfg.pieSize || 18;
+  const doneColor = cfg.pieColorDone || "#4dabf7";
+  const todoColor = cfg.pieColorTodo || "#e9ecef";
+  const wrap = document.createElement("div");
+  wrap.className = "mm-checklist-progress mm-checklist-progress-pie";
+  wrap.style.width = `${size}px`;
+  wrap.style.height = `${size}px`;
+  const svgNs = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNs, "svg");
+  svg.setAttribute("viewBox", "0 0 100 100");
+  svg.setAttribute("width", "100%");
+  svg.setAttribute("height", "100%");
+  const radius = 40;
+  const circumference = 2 * Math.PI * radius;
+  const dashDone = progress.ratio * circumference;
+  const dashTodo = circumference - dashDone;
+  const todo = document.createElementNS(svgNs, "circle");
+  todo.setAttribute("cx", "50");
+  todo.setAttribute("cy", "50");
+  todo.setAttribute("r", String(radius));
+  todo.setAttribute("fill", "none");
+  todo.setAttribute("stroke", todoColor);
+  todo.setAttribute("stroke-width", "18");
+  todo.setAttribute("stroke-dasharray", `${circumference} ${circumference}`);
+  todo.setAttribute("transform", "rotate(-90 50 50)");
+  const done = document.createElementNS(svgNs, "circle");
+  done.setAttribute("cx", "50");
+  done.setAttribute("cy", "50");
+  done.setAttribute("r", String(radius));
+  done.setAttribute("fill", "none");
+  done.setAttribute("stroke", doneColor);
+  done.setAttribute("stroke-width", "18");
+  done.setAttribute("stroke-dasharray", `${dashDone} ${circumference}`);
+  done.setAttribute("stroke-dashoffset", "0");
+  done.setAttribute("transform", "rotate(-90 50 50)");
+  svg.appendChild(todo);
+  svg.appendChild(done);
+  wrap.appendChild(svg);
+  if (cfg.showCount !== false) {
+    const label = document.createElement("span");
+    label.className = "mm-checklist-progress-label";
+    label.textContent = `${Math.round(progress.ratio * 100)}%`;
+    wrap.appendChild(label);
+  }
+  return wrap;
+}
+
 export default class CanvasMindmap extends Plugin {
   settings: MindMapSettings;
   constructor() {
     super(...arguments);
     this.inRelayoutCanvasSet = /* @__PURE__ */ new Set();
     this.lastRelayoutTime = 0;
+    // --- Instance-scoped init state & resources (do NOT put these on `canvas`) ---
+    // `leaf.view.canvas` SURVIVES a plugin disable/enable. A canvas-level flag
+    // written by a previous instance (`canvas.__mmChecklistUI`) therefore made
+    // the NEW instance early-return, so it never installed its MutationObserver
+    // and never re-injected — the previous build's DOM (e.g. the old two-label
+    // `83%` + `5/6`) then stayed on screen forever. That is the real reason
+    // earlier rounds looked "not applied". Same reasoning for the observers and
+    // listeners: they are owned (and torn down) per instance.
+    this.ensureMmState();
     this.debounceSaveCanvas = (canvas) => {
       canvas.requestSave();
     };
@@ -156,6 +340,22 @@ export default class CanvasMindmap extends Plugin {
       this.lastRelayoutTime = now;
       this.relayoutOneTree(node);
     };
+  }
+  // Lazily (re)create the instance-scoped state. Idempotent — and deliberately
+  // called at the top of every setup/teardown entry point, because the plugin
+  // object can be constructed WITHOUT running the constructor (the jsdom test
+  // harness does exactly that via Object.create), so relying on the constructor
+  // alone would throw "Cannot read properties of undefined".
+  ensureMmState() {
+    if (this.mmObservers)
+      return;
+    this.mmObservers = [];
+    this.mmListeners = [];
+    this.mmChecklistUI = new WeakSet();
+    this.mmCollapseUI = new WeakSet();
+    this.mmRestoreScheduled = new WeakSet();
+    this.mmRestoreDone = new WeakSet();
+    this.mmRelaidOut = new WeakSet();
   }
   async onload() {
     await this.registerSettings();
@@ -180,7 +380,87 @@ export default class CanvasMindmap extends Plugin {
         setTimeout(() => this.ensureCollapseUIForAllLeaves(), 200);
       }));
     });
-    console.log("Canvas MindMap Plugin loaded");
+    console.log(`[canvas-mindmap-keyboard] loaded build: ${MM_BUILD_TAG}`);
+    try {
+      document.body.dataset.mmBuild = MM_BUILD_TAG;
+    }
+    catch (e) {
+      /* headless / no body — ignore */
+    }
+    // A plugin disable/enable does NOT clean the canvas, so a previous instance
+    // may have left its injected DOM behind (bar, capsule, old two-label badges).
+    // Strip it now: we always start from a clean slate and re-inject with the
+    // CURRENT build, instead of showing a stale layout.
+    this.removeInjectedUI();
+    this.addCommand({
+      id: "canvas-mindmap-keyboard-show-build-tag",
+      name: "显示插件构建版本 / show plugin build tag",
+      callback: () => {
+        new Notice(`canvas-mindmap-keyboard\nbuild: ${MM_BUILD_TAG}`, 10000);
+      },
+    });
+  }
+  // Everything this instance owns must be torn down, otherwise a raw
+  // MutationObserver / DOM listener (Obsidian does NOT auto-remove either) keeps
+  // running after unload and would fight the next instance — re-injecting the
+  // previous build's DOM over the new one.
+  onunload() {
+    this.ensureMmState();
+    try {
+      this.mmObservers.forEach((o) => {
+        try {
+          o.disconnect();
+        }
+        catch (e) {
+        }
+      });
+    }
+    catch (e) {
+    }
+    this.mmObservers = [];
+    try {
+      this.mmListeners.forEach((rec) => {
+        try {
+          rec.el.removeEventListener(rec.type, rec.fn, rec.opts);
+        }
+        catch (e) {
+        }
+      });
+    }
+    catch (e) {
+    }
+    this.mmListeners = [];
+    this.removeInjectedUI();
+    // Legacy canvas-level flags written by builds that had no onunload: clear
+    // them so they can never block a fresh instance from initialising.
+    try {
+      this.app.workspace.getLeavesOfType("canvas").forEach((leaf) => {
+        const c = leaf && leaf.view && leaf.view.canvas;
+        if (!c)
+          return;
+        delete c.__mmChecklistUI;
+        delete c.__mmCollapseUI;
+        delete c.__mmRestoreScheduled;
+        delete c.__mmRestoreDone;
+        delete c.__mmRelaidOut;
+      });
+    }
+    catch (e) {
+    }
+  }
+  removeInjectedUI() {
+    this.ensureMmState();
+    try {
+      document.querySelectorAll(".mm-checklist-progress").forEach((el) => el.remove());
+      document.querySelectorAll(".mm-collapse-btn").forEach((el) => el.remove());
+      document.querySelectorAll(".canvas-node").forEach((el) => {
+        el.classList.remove("mm-checklist-pie-mode");
+        el.style.removeProperty("--mm-checklist-pie-w");
+      });
+    }
+    catch (e) {
+      /* headless / no document — ignore */
+    }
   }
   async registerSettings() {
     this.settingTab = new MindMapSettingTab(this.app, this);
@@ -781,8 +1061,132 @@ export default class CanvasMindmap extends Plugin {
       }
     });
   }
+  injectChecklistProgress(canvas) {
+    if (!(canvas == null ? void 0 : canvas.nodes))
+      return;
+    const enabled = this.settings.checklistProgress && this.settings.checklistProgress.enabled;
+    if (!enabled) {
+      canvas.nodes.forEach((n) => {
+        const el = n && n.nodeEl ? n.nodeEl : null;
+        if (!el)
+          return;
+        const indicator = el.querySelector(".mm-checklist-progress");
+        if (indicator)
+          indicator.remove();
+        el.classList.remove("mm-checklist-pie-mode");
+        el.style.removeProperty("--mm-checklist-pie-w");
+      });
+      return;
+    }
+    // 进度条功能对所有画布生效，不依赖 fileNameInclude 门控
+    const style = (this.settings.checklistProgress.style || "bar");
+    canvas.nodes.forEach((node) => {
+      const el = node == null ? void 0 : node.nodeEl;
+      const text = node == null ? void 0 : node.text;
+      if (!el)
+        return;
+      const progress = parseChecklistProgress(text);
+      let indicator = el.querySelector(".mm-checklist-progress");
+      if (!progress) {
+        if (indicator)
+          indicator.remove();
+        el.classList.remove("mm-checklist-pie-mode");
+        el.style.removeProperty("--mm-checklist-pie-w");
+        return;
+      }
+      const cfg = this.settings.checklistProgress || {};
+      // Any setting that affects the rendered indicator must be part of the
+      // signature, otherwise changing it in the settings tab would not refresh
+      // the already-rendered bar/capsule.
+      const sig = [
+        // The build tag is part of the signature ON PURPOSE: when the plugin is
+        // updated, every previously-rendered indicator must be rebuilt, even if
+        // the ratio and all settings are unchanged. Without this, Obsidian keeps
+        // the old DOM node (e.g. a counter still pinned to the top-left by an
+        // older build) and the new positioning never appears — which is exactly
+        // what made earlier rounds look "not applied".
+        MM_BUILD_TAG,
+        style,
+        progress.ratio,
+        cfg.showCount !== false,
+        cfg.showPercentAtJunction === true,
+        cfg.barLength != null ? cfg.barLength : 95,
+        cfg.barHeight || 8,
+        cfg.barColorDone || "",
+        cfg.barColorTodo || "",
+      ].join("|");
+      if (!indicator || indicator.getAttribute("data-mm-sig") !== sig) {
+        if (indicator)
+          indicator.remove();
+        indicator = style === "pie" ? createProgressPie(progress, this.settings) : createProgressBar(progress, this.settings, el);
+        indicator.classList.add("mm-checklist-progress");
+        indicator.setAttribute("data-mm-sig", sig);
+        el.appendChild(indicator);
+      }
+      // pie 模式下把节点内容向右推开（仅半个饼图宽度），避免饼图与标题重叠
+      if (style === "pie") {
+        el.classList.add("mm-checklist-pie-mode");
+        const pieW = (this.settings.checklistProgress && this.settings.checklistProgress.pieSize) || 14;
+        el.style.setProperty("--mm-checklist-pie-w", `${pieW}px`);
+      } else {
+        el.classList.remove("mm-checklist-pie-mode");
+        el.style.removeProperty("--mm-checklist-pie-w");
+      }
+    });
+  }
+  refreshChecklistProgress() {
+    var _a;
+    const view = (_a = this.app.workspace.getActiveFileView()) != null ? _a : null;
+    if (view && view.canvas) {
+      this.injectChecklistProgress(view.canvas);
+    }
+    const leaves = this.app.workspace.getLeavesOfType("canvas");
+    leaves.forEach((leaf) => {
+      const cv = leaf.view;
+      if (cv && cv.canvas && cv !== view) {
+        this.injectChecklistProgress(cv.canvas);
+      }
+    });
+  }
+  setupChecklistProgressUI(canvas, retryCount = 0) {
+    this.ensureMmState();
+    if (!canvas)
+      return;
+    if (!canvas.wrapperEl) {
+      if (retryCount < 25) {
+        setTimeout(() => this.setupChecklistProgressUI(canvas, retryCount + 1), 120);
+      }
+      return;
+    }
+    if (this.mmChecklistUI.has(canvas))
+      return;
+    this.mmChecklistUI.add(canvas);
+    const self = this;
+    const doInject = () => self.injectChecklistProgress(canvas);
+    let scheduled = false;
+    const schedule = () => {
+      if (scheduled)
+        return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        doInject();
+      });
+    };
+    const observer = new MutationObserver(schedule);
+    observer.observe(canvas.wrapperEl, { childList: true, subtree: true, attributes: true });
+    this.mmObservers.push(observer);
+    doInject();
+    [50, 100, 200, 400, 800, 1500, 2500].forEach((d) => setTimeout(doInject, d));
+    const onMouseOver = () => {
+      requestAnimationFrame(() => doInject());
+    };
+    canvas.wrapperEl.addEventListener("mouseover", onMouseOver, { passive: true });
+    this.mmListeners.push({ el: canvas.wrapperEl, type: "mouseover", fn: onMouseOver, opts: { passive: true } });
+  }
   setupCollapseUI(canvas, retryCount = 0) {
     var _a;
+    this.ensureMmState();
     if (!canvas)
       return;
     if (!this.isMindmapCanvas(canvas.view != null ? canvas.view : null))
@@ -793,13 +1197,14 @@ export default class CanvasMindmap extends Plugin {
       }
       return;
     }
-    if (canvas.__mmCollapseUI)
+    if (this.mmCollapseUI.has(canvas))
       return;
-    canvas.__mmCollapseUI = true;
+    this.mmCollapseUI.add(canvas);
     const self = this;
     const doInject = () => {
       self.injectCollapseButtons(canvas);
       self.applyCollapseVisibility(canvas);
+      self.injectChecklistProgress(canvas);
     };
     let scheduled = false;
     const schedule = () => {
@@ -813,33 +1218,37 @@ export default class CanvasMindmap extends Plugin {
     };
     const observer = new MutationObserver(schedule);
     observer.observe(canvas.wrapperEl, { childList: true, subtree: true, attributes: true });
+    this.mmObservers.push(observer);
     doInject();
     [50, 100, 200, 400, 800, 1500, 2500].forEach((d) => setTimeout(doInject, d));
     this.scheduleCollapseRestore(canvas);
     this.setupDragReattach(canvas);
     let lastMouseInject = 0;
-    canvas.wrapperEl.addEventListener("mouseover", (ev) => {
+    const onMouseOver = () => {
       const now = Date.now();
       if (now - lastMouseInject < 500)
         return;
       lastMouseInject = now;
       requestAnimationFrame(() => { doInject(); });
-    }, { passive: true });
+    };
+    canvas.wrapperEl.addEventListener("mouseover", onMouseOver, { passive: true });
+    this.mmListeners.push({ el: canvas.wrapperEl, type: "mouseover", fn: onMouseOver, opts: { passive: true } });
   }
   scheduleCollapseRestore(canvas) {
-    if (!canvas || canvas.__mmRestoreScheduled)
+    this.ensureMmState();
+    if (!canvas || this.mmRestoreScheduled.has(canvas))
       return;
-    canvas.__mmRestoreScheduled = true;
+    this.mmRestoreScheduled.add(canvas);
     const tryRestore = (attempt) => {
-      if (canvas.__mmRestoreDone)
+      if (this.mmRestoreDone.has(canvas))
         return;
       const loaded = canvas.nodes && canvas.nodes.size > 0;
       if (loaded) {
         const collapsed = this.getCollapsedSetForCanvas(canvas);
         this.injectCollapseButtons(canvas);
         this.applyCollapseVisibility(canvas);
-        if (collapsed.size > 0 && !canvas.__mmRelaidOut) {
-          canvas.__mmRelaidOut = true;
+        if (collapsed.size > 0 && !this.mmRelaidOut.has(canvas)) {
+          this.mmRelaidOut.add(canvas);
           try {
             this.relayoutAffectedTrees(canvas, Array.from(collapsed));
           } catch (err) {
@@ -850,7 +1259,7 @@ export default class CanvasMindmap extends Plugin {
             this.applyCollapseVisibility(canvas);
           }, 350);
         }
-        canvas.__mmRestoreDone = true;
+        this.mmRestoreDone.add(canvas);
         return;
       }
       if (attempt < 40) {
@@ -863,9 +1272,12 @@ export default class CanvasMindmap extends Plugin {
     const leaves = this.app.workspace.getLeavesOfType("canvas");
     leaves.forEach((leaf) => {
       const cv = leaf.view;
-      if (cv && cv.canvas && this.isMindmapCanvas(cv)) {
-        this.setupCollapseUI(cv.canvas);
-        this.scheduleCollapseRestore(cv.canvas);
+      if (cv && cv.canvas) {
+        this.setupChecklistProgressUI(cv.canvas);
+        if (this.isMindmapCanvas(cv)) {
+          this.setupCollapseUI(cv.canvas);
+          this.scheduleCollapseRestore(cv.canvas);
+        }
       }
     });
   }
@@ -1830,11 +2242,14 @@ export default class CanvasMindmap extends Plugin {
           }
           const opened = next.call(this);
           try {
-            if (this.canvas && self.isMindmapCanvas(this)) {
-              self.setupCollapseUI(this.canvas);
+            if (this.canvas) {
+              self.setupChecklistProgressUI(this.canvas);
+              if (self.isMindmapCanvas(this)) {
+                self.setupCollapseUI(this.canvas);
+              }
             }
           } catch (err) {
-            console.error("[canvas-mindmap-keyboard] setupCollapseUI failed:", err);
+            console.error("[canvas-mindmap-keyboard] setupChecklistProgressUI failed:", err);
           }
           return opened;
         }
