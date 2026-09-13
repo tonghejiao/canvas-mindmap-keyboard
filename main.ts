@@ -22,7 +22,7 @@ import { EditorView, ViewUpdate } from "@codemirror/view";
  *   2. DevTools console → "[canvas-mindmap-keyboard] loaded build: …"
  *   3. `document.body.dataset.mmBuild` in the DevTools console
  */
-const MM_BUILD_TAG = "1.1.9 / 2026-09-12d / merged-badge+reload-safe";
+const MM_BUILD_TAG = "1.2.0 / 2026-09-13 / fix-new-node-shrink";
 
 function generateId(canvas: any) {
   let id = Math.random().toString(36).substr(2, 10);
@@ -80,23 +80,61 @@ const unableCalcHeightOrWidth = (sizerEl: any) => {
 }
 
 const updateNodeSize = (plugin: CanvasMindmap) => {
+  const calcFinalWidth = (node: any, sizerEl: any) => {
+    let padding = plugin.settings.nodeAutoResize.contentHorizontalPadding;
+    const el = sizerEl.querySelector(".cm-gutters");
+    if (el) {
+      const style = window.getComputedStyle(el);
+      const marginLeft = parseFloat(style.marginLeft);
+      const marginRight = parseFloat(style.marginRight);
+      padding += el.offsetWidth + marginLeft + marginRight + 5;
+    }
+
+    let finalWidth = node.width;
+    if (plugin.settings.nodeAutoResize.autoResizeWidthSwitch) {
+      const lines = sizerEl.querySelectorAll(".cm-line");
+      let maxWidth = 0;
+      for (const lineEl of lines) {
+        const width = plugin.getTextPixelWidthFromElement(lineEl);
+        if (width > maxWidth) maxWidth = width;
+      }
+      maxWidth += padding;
+      finalWidth = plugin.settings.nodeAutoResize.maxWidth < 0
+        ? maxWidth
+        : Math.min(maxWidth, plugin.settings.nodeAutoResize.maxWidth); // 最大宽度限制
+    }
+    return finalWidth;
+  };
+
   return EditorView.updateListener.of((v: ViewUpdate) => {
     if (v.focusChanged) {
-      if (!plugin.settings.nodeAutoResize.autoResizeHeightSwitch) return;
+      if (!plugin.settings.nodeAutoResize.autoResizeHeightSwitch && !plugin.settings.nodeAutoResize.autoResizeWidthSwitch) return;
 
       const editor = v.state.field(editorInfoField);
       const node = editor?.node;
 
       if (node?.canvas?.view && plugin.verifyCanvasLayout(node.canvas.view)) {
+        // 进入编辑阶段：保持创建时的宽度，不要根据内容缩窄。
+        if (v.view.hasFocus) return;
+
+        // 退出编辑阶段：按内容一次性重新计算宽高并自动排版。
         setTimeout(() => {
+          if (!node.text || !node.text.trim()) {
+            plugin.autoLayout(node.canvas, node);
+            return;
+          }
           const sizerEl = node?.child?.editMode?.sizerEl;
 
-          if (unableCalcHeightOrWidth(sizerEl)) return;
+          if (unableCalcHeightOrWidth(sizerEl)) {
+            plugin.autoLayout(node.canvas, node);
+            return;
+          }
 
-          node.resize({ width: node.width, height: sizerEl.innerHeight + 35 }),
-            node.render(),
-            plugin.debounceSaveCanvas(node.canvas)
-
+          const finalWidth = calcFinalWidth(node, sizerEl);
+          node.resize({ width: finalWidth, height: sizerEl.innerHeight + 35 });
+          node.render();
+          plugin.debounceSaveCanvas(node.canvas);
+          plugin.autoLayout(node.canvas, node);
         }, 100);
       }
     }
@@ -107,40 +145,20 @@ const updateNodeSize = (plugin: CanvasMindmap) => {
       const node = editor?.node;
 
       if (node?.canvas?.view && plugin.verifyCanvasLayout(node.canvas.view)) {
+        // 编辑中保持当前节点宽度不变，避免输入第一个字后节点被缩成很窄。
+        if (node.isEditing) {
+          node.resize({ width: node.width, height: node.height });
+          node.render();
+          return;
+        }
+
         const sizerEl = node?.child?.editMode?.sizerEl;
         if (unableCalcHeightOrWidth(sizerEl)) return;
 
-        let padding = plugin.settings.nodeAutoResize.contentHorizontalPadding
-        const el = sizerEl.querySelector(".cm-gutters");
-        if (el) {
-          const style = window.getComputedStyle(el);
-
-          const marginLeft = parseFloat(style.marginLeft);
-          const marginRight = parseFloat(style.marginRight);
-
-          padding += el.offsetWidth + marginLeft + marginRight + 5;
-        }
-
-        let finalWidth = node.width;
-        if (plugin.settings.nodeAutoResize.autoResizeWidthSwitch) {
-          const lines = sizerEl.querySelectorAll(".cm-line");
-          let maxWidth = 0;
-          for (const lineEl of lines) {
-            const width = plugin.getTextPixelWidthFromElement(lineEl);
-            if (width > maxWidth) maxWidth = width;
-          }
-          maxWidth += padding
-          finalWidth = plugin.settings.nodeAutoResize.maxWidth < 0 ? maxWidth : Math.min(maxWidth, plugin.settings.nodeAutoResize.maxWidth); // 最大宽度限制
-        }
-
-        node.resize({ width: finalWidth, height: plugin.settings.nodeAutoResize.autoResizeHeightSwitch ? 1 : node.height }),
-          node.render();
-        if (plugin.settings.nodeAutoResize.autoResizeHeightSwitch) {
-          node.resize({ width: node.width, height: sizerEl.innerHeight + 35 }),
-            node.render()
-        }
+        const finalWidth = calcFinalWidth(node, sizerEl);
+        node.resize({ width: finalWidth, height: node.height });
+        node.render();
         plugin.debounceSaveCanvas(node.canvas);
-
       }
     }
   });
