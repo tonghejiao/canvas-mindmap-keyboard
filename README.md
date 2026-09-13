@@ -2,7 +2,7 @@
 
 > Keyboard-first MindMap overlay for Obsidian Canvas: Tab/Enter/Arrow driven, auto-layout, auto-size, **plus collapse/expand, a right-click context menu, drag-to-re-parent, checklist progress indicator, and bilingual settings**.
 >
-> 一个以键盘操作为主的 Obsidian Canvas 思维导图插件：Tab/Enter/方向键驱动、自动布局、自动调整节点尺寸，**并在 1.1.8 中新增了折叠/展开、右键菜单与拖拽改挂父节点，在 1.1.9 中新增清单进度指示器与中英双语设置界面**。
+> 一个以键盘操作为主的 Obsidian Canvas 思维导图插件：Tab/Enter/方向键驱动、自动布局、自动调整节点尺寸，**并在 1.1.8 中新增了折叠/展开、右键菜单与拖拽改挂父节点，在 1.1.9 中新增清单进度指示器与中英双语设置界面，在 1.2.0 中修复了新建节点进入编辑时边框缩窄的问题**。
 
 ---
 
@@ -46,6 +46,7 @@
 | **Collapse / expand subtree** (new in 1.1.8) | **Hover a node → a `+`/`−` button appears at its top-right; `−` collapses the whole subtree, `+` expands only the next level. Also available via the right-click menu.** | **File name contains the configured keyword (`mindmap` by default, editable in settings)** |
 | **Right-click context menu** (new in 1.1.8) | **5 items: add child / add sibling / collapse / expand / expand-next-level.** | **File name contains the configured keyword (`mindmap` by default, editable in settings)** |
 | **Drag a node onto another to re-parent** (new in 1.1.8) | **Drag node A (with its whole subtree) over node B → A is detached from its old parent and appended as B's last child.** | **File name contains the configured keyword + drag enabled** |
+| **Drag to reorder sibling nodes / 拖动节点调整兄弟排序** | **Obsidian Canvas native: drop a node onto another node to re-parent it; the dropped node's position among its siblings follows the drop. Since 1.1.8 the plugin's drag-to-re-parent handles this with cycle-safety and touch support (a node dropped onto its ancestor is flattened to the same level).** | **File name contains the configured keyword + drag enabled** |
 | **Checklist progress indicator** (new in 1.1.9) | **Parses `- [ ]` / `- [x]` and shows the completion ratio — a capsule bar above the node's top border (done/remaining two-colour + salmon-flesh striations) or a pie ring in the top-left corner. Optional junction percentage badge above the seam and an optional `n/N` counter directly below that badge (just under the bar, inside the node frame; pinned to the inner top-left/right corner at `0%`/`100%`); adjustable bar length and height.** | **Enabled in settings; works on any `.canvas`** |
 
 ---
@@ -187,6 +188,22 @@ Right-click any canvas node to get 5 actions:
 - **任何非主色（红色、黄色、蓝色、绿色等）的彩色连线都被视为"装饰性"跨接边，自动排版引擎会直接跳过它们**——不会因为这些彩色连线而去挪动节点位置，也不会在展开子树时把它们一起重新排版。
 - 这样你可以自由地画彩色连接（如"参见"、"依赖"、"弱关联"等），而不会打乱主树的版式。
 - 右键菜单与拖拽改挂父节点同样只针对主色连线生效。
+
+---
+
+## New in 1.2.0 / 1.2.0 新增功能
+
+### Fix: new node frame shrinks while typing — 修复新建节点编辑时边框缩窄
+
+**EN**
+- Previously, creating a new node and typing the first character made the node frame shrink to the typed-text width (sometimes collapsing into a single narrow column).
+- Now the node **keeps its creation width** while editing: the resizer holds `width: node.width` during `node.isEditing`, and width/height are recomputed **once** on exit, then the tree is auto-laid-out. Behaviour is now "stay the same size while typing, resize on commit".
+- The **"Extra vertical gap for bar"** setting has been removed; bar/badge overlap is now handled by the global vertical gap (default 30) or by manually widening the node.
+
+**中文**
+- 此前新建节点后输入第一个字，节点边框会立刻缩到输入内容的宽度（有时塌成一列窄条）。
+- 现在编辑阶段节点**保持创建时的宽度**：`node.isEditing` 时尺寸保持 `width: node.width` 不变；**退出编辑时**才一次性按内容重算宽高并自动排版。行为恢复为"编辑时不缩、提交时再调"。
+- 已**移除**「进度条额外垂直间距」设置项；进度条/徽标与上方节点重叠，改由全局垂直间距（默认 30）或手动拉宽节点解决。
 
 ---
 
