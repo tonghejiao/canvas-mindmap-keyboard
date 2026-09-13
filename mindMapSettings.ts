@@ -91,11 +91,11 @@ export const DEFAULT_SETTINGS: MindMapSettings = {
 		fileNameInclude: 'mindmap', // 文件名包含
 	},
 	creatNode: {
-		width: 300,
-		height: 54,
+		width: 200,
+		height: 100,
 	},
 	layout: {
-		automaticGlobalLayout: true, // 自动全局布局开关 (弃用)
+		automaticGlobalLayout: false, // 自动全局布局开关 (弃用)
 		automaticLayoutLevel: AutomaticLayoutLevel.Tree,
 		whichFileUseCanvasLevelAutomaticLayout: "canvaslal",
 		whichFileUseTreeLevelAutomaticLayout: "treelal",
@@ -106,29 +106,29 @@ export const DEFAULT_SETTINGS: MindMapSettings = {
 	nodeAutoResize: {
 		autoResizeWidthSwitch: true, // 是否开启节点自动宽度
 		autoResizeHeightSwitch: true, // 是否开启节点自动高度
-		maxLine: -1, // 节点自动增高的最大行数，超过后不再自动增高
-		maxWidth: 380,
-		contentHorizontalPadding: Platform.isMacOS ? 40 : 35,
+		maxLine: 2, // 节点自动增高的最大行数，超过后不再自动增高
+		maxWidth: 200,
+		contentHorizontalPadding: 40,
 	},
 	collapseEnabled: true,
 	collapsedNodes: {},
 	collapseRelayoutScope: "tree",
-	collapseColorExpanded: "#8b9aaf",
-	collapseColorCollapsed: "#18b8a6",
+	collapseColorExpanded: "#fd77f2",
+	collapseColorCollapsed: "#6bbdb3",
 	dragReattachEnabled: true,
 	dragReattachOverlapRatio: 0.3,
 	checklistProgress: {
 		enabled: true,
 		style: "bar",
-		barHeight: 8,
+		barHeight: 6,
 		barLength: 95,
-		barColorDone: "#51cf66",
-		barColorTodo: "#ff6b6b",
-		pieSize: 14,
-		pieColorDone: "#4dabf7",
-		pieColorTodo: "#e9ecef",
+		barColorDone: "#adffd6",
+		barColorTodo: "#ff9cf5",
+		pieSize: 18,
+		pieColorDone: "#b3ffd0",
+		pieColorTodo: "#ffabf1",
 		showCount: true,
-		showPercentAtJunction: false,
+		showPercentAtJunction: true,
 	},
 	hotkey: {
 		createChildNode: { modifiers: "", key: "Tab", enabled: true },
