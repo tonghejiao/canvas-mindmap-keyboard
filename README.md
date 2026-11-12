@@ -2,7 +2,9 @@
 
 > Keyboard-first MindMap overlay for Obsidian Canvas: Tab/Enter/Arrow driven, auto-layout, auto-size, **plus collapse/expand, a right-click context menu, drag-to-re-parent, checklist progress indicator, and bilingual settings**.
 >
-> 一个以键盘操作为主的 Obsidian Canvas 思维导图插件：Tab/Enter/方向键驱动、自动布局、自动调整节点尺寸，**并在 1.1.8 中新增了折叠/展开、右键菜单与拖拽改挂父节点，在 1.1.9 中新增清单进度指示器与中英双语设置界面，在 1.2.0 中修复了新建节点进入编辑时边框缩窄的问题**。
+> 一个以键盘操作为主的 Obsidian Canvas 思维导图插件：Tab/Enter/方向键驱动、自动布局、自动调整节点尺寸，**并在 1.1.8 中新增了折叠/展开、右键菜单与拖拽改挂父节点，在 1.1.9 中新增清单进度指示器与中英双语设置界面，在 1.2.0 中修复了新建节点进入编辑时边框缩窄的问题，在 1.2.1 中修复了手工拖动连接线刚拖出就消失的问题**。
+>
+> ⚠️ **版本说明**：现行 **1.2.1（2026-11-12）** 是以线上稳定版 1.2.0 为基线的连线修复版；9 月那个同名「md 笔记内进度条」1.2.1 实验版当时因 CM6 导入缺失导致插件整体加载失败，已回退、**从未发布**，其说明保留在下方仅供查阅。
 
 ---
 
@@ -47,6 +49,7 @@
 | **Right-click context menu** (new in 1.1.8) | **5 items: add child / add sibling / collapse / expand / expand-next-level.** | **File name contains the configured keyword (`mindmap` by default, editable in settings)** |
 | **Drag a node onto another to re-parent** (new in 1.1.8) | **Drag node A (with its whole subtree) over node B → A is detached from its old parent and appended as B's last child.** | **File name contains the configured keyword + drag enabled** |
 | **Drag to reorder sibling nodes / 拖动节点调整兄弟排序** | **Obsidian Canvas native: drop a node onto another node to re-parent it; the dropped node's position among its siblings follows the drop. Since 1.1.8 the plugin's drag-to-re-parent handles this with cycle-safety and touch support (a node dropped onto its ancestor is flattened to the same level).** | **File name contains the configured keyword + drag enabled** |
+| ~~Markdown checklist progress bar / 笔记内进度条~~ (**1.2.1 实验版 · 已废弃，现行版本不含**) | ⛔ **未发布功能**：2026-09-13 的实验版因 CM6 导入缺失导致插件整体加载失败，已回退。现行 1.2.1（2026-11-12）不含此功能，请勿按本节操作。仅画布节点上的清单进度指示器（1.1.9）有效。 | — |
 | **Checklist progress indicator** (new in 1.1.9) | **Parses `- [ ]` / `- [x]` and shows the completion ratio — a capsule bar above the node's top border (done/remaining two-colour + salmon-flesh striations) or a pie ring in the top-left corner. Optional junction percentage badge above the seam and an optional `n/N` counter directly below that badge (just under the bar, inside the node frame; pinned to the inner top-left/right corner at `0%`/`100%`); adjustable bar length and height.** | **Enabled in settings; works on any `.canvas`** |
 
 ---
@@ -204,6 +207,72 @@ Right-click any canvas node to get 5 actions:
 - 此前新建节点后输入第一个字，节点边框会立刻缩到输入内容的宽度（有时塌成一列窄条）。
 - 现在编辑阶段节点**保持创建时的宽度**：`node.isEditing` 时尺寸保持 `width: node.width` 不变；**退出编辑时**才一次性按内容重算宽高并自动排版。行为恢复为"编辑时不缩、提交时再调"。
 - 已**移除**「进度条额外垂直间距」设置项；进度条/徽标与上方节点重叠，改由全局垂直间距（默认 30）或手动拉宽节点解决。
+
+---
+
+## 1.2.1 实验版（2026-09-13 · 已废弃，从未发布）
+
+> ⛔ **本节内容不属于现行版本**：该实验版（普通笔记内 `cmk-todolist` 围栏进度条）因 CM6 导入缺失导致整个插件加载失败，当日即回退到 1.2.0。下面的文字仅作历史记录，**现行 1.2.1 请见下一节**。
+> ⛔ This section describes an abandoned experiment (it never shipped). See the next section for the shipping 1.2.1.
+
+### Feature: checklist progress bar inside normal markdown notes — 普通笔记内进度条（未发布）
+
+**EN**
+- New setting **"Enable in normal notes"** under Checklist progress.
+- In any `.md` note, insert a `cmk-todolist` **fenced code block**:
+  ````
+  ```cmk-todolist
+  ```
+  ````
+  The plugin shows the same capsule progress bar used on canvas nodes — counting `- [ ]` / `- [x]` items in the current section (between the nearest headings) and displaying `done/total` with the merged percentage badge.
+- Works in both **Reading** view (markdown post-processor swaps the rendered `<pre>`) and **Live Preview** (a high-precedence CodeMirror decoration replaces the code block with the bar, updating as you toggle items). Bar width is fixed at ≈15 Chinese characters / 30 English characters.
+
+**中文**
+- 清单进度设置下新增「在普通笔记中启用」开关。
+- 在任意 `.md` 笔记里插入 `cmk-todolist` **围栏代码块**：
+  ````
+  ```cmk-todolist
+  ```
+  ````
+  即可显示与画布节点同款的胶囊进度条：统计当前小节（相邻标题之间）的 `- [ ]` / `- [x]` 完成度，并以合并徽标显示 `已完成/总数`。
+- 阅读模式与实时预览均生效（实时预览下以高优先级 CodeMirror 装饰把代码块整体替换为进度条，勾选即更新）；进度条宽度固定约 15 个汉字 / 30 个英文字符。
+
+---
+
+## 现行 1.2.1（2026-11-12）：修复手工拖动连接线刚拖出就消失
+
+**现象**：画布上先建好一个自由节点，再从已纳入导图树的某节点**右侧边框中点**手工拖连接线过去，线经常刚拖出就消失，要试几次才能连上。
+
+### 根因（不是 Obsidian 的 bug，是插件的自动排版抢跑）
+
+从边框中点拖线时，Canvas 会先**选中**源节点。插件给 `Canvas.updateSelection()` 打了补丁：只要单选了节点，**100 ms 后**就调 `autoLayout()` → `debounceRelayout*()`（200 ms 节流）→ `relayoutCanvas()` → `canvas.importData({nodes, edges})` + `requestFrame()`。而 `relayoutCanvas()` 把**所有没有主色入边的节点都当作根**重新排版——包括你正瞄准的那个自由节点，整张画布随之位移，Obsidian 正在创建的草稿连线（draft edge）端点失效并被丢弃。200 ms 防抖让这件事时有时无，于是「试几次就能成功」。
+
+第二重风险：`setupDragReattach()` 在同一个 `pointerdown` 上把边框中点的连接手柄当成「开始拖动节点」，若 `pointerup` 时误判出落点，会走 `reattachNodeToParent()` → `importData(..., true)` 整图替换，把刚连好的线再抹一次。
+
+### 修复（四层，全部作用在 1.2.0 生产产物上）
+
+| 层 | 改动 |
+|---|---|
+| ① 指针守卫 | 新增模块级 `MM_POINTER` + `mmBindPointerGuard()` / `mmPointerBusy()`：`pointerdown` → `pointerup` 期间，以及松手后 350 ms 宽限内，判定为「指针正忙」 |
+| ② 掐断触发链 | `updateSelection` 补丁里那个 100 ms 延迟的 `autoLayout()` 遇 `mmPointerBusy()` 直接跳过。单纯选中节点本不需要重排；新建节点、编辑退出等其它自动排版路径**不受影响** |
+| ③ 兜底 | 真实的 `relayoutCanvas()` / `relayoutOneTree()` 在 `MM_POINTER.down === true` 时直接返回（只覆盖「指针物理按下」瞬间，松手后一切正常，不会误伤右键菜单 / 命令触发的重排） |
+| ④ 区分拖线与拖节点 | `setupDragReattach()` 忽略落在节点**边框带**（距边缘内 12 px / 外 16 px）的 `pointerdown`——这正是四个原生连接手柄与缩放手柄的位置；从节点中心拖动仍然正常改挂父节点 |
+
+### 验证
+
+`test_edge_drag.cjs` 从**真实部署的 main.js** 加载插件类（真实 `onload` / `updateSelection` 补丁 / `autoLayout` / `debounceRelayout*` / `setupDragReattach`），模拟指针序列：
+
+- 对改前基线产物：`--baseline` **2/2 复现**「拖线期间发生 `importData()`」；
+- 对 1.2.1：**6/6 通过**——拖拽期间不重写画布、松手后恢复正常排版、真实重排方法按下时跳过、边框中点不误判改挂、**从节点中心拖动仍能改挂**（既有功能回归）。
+
+`patch_edge_drag.cjs` 为幂等补丁脚本：默认 dry-run，`--apply` 才写盘并自动留时间戳备份，重复执行输出 `SKIP ... already applied`。构建标记 `1.2.1 / 2026-11-12 / fix-edge-drag-disappear` 仍按三件套（命令面板 / 控制台 / `document.body.dataset.mmBuild`）并在 `data-mm-sig` 首项。
+
+### 使用注意
+
+- 从节点**边框中点**拖线现在完全交给 Canvas 原生；若想「拖动节点改挂父节点」，请从节点**中间/文字区**起拖（边框带 12 px 内不再触发改挂）。
+- 手工拉出的默认是**主色边**，插件会把它当作父子关系并纳入自动排版；若只想画一条「参见 / 依赖」这类关联而不想让自由节点被排进树里，请把这条边改成**彩色**（见「Colored edges are excluded from auto layout」一节）。
+- 本次是**在 1.2.0 生产 bundle 上打补丁**（该插件历史上一直如此维护），源码目录里的 `main.ts` / `main.js` 是 9 月实验版的转写稿，**不是本版构建来源**；权威产物为部署目录 `main.js` + 本目录的补丁脚本与回归脚本。改前/改后全套备份见 `.bak-20261112-pre-edge-drag/` 与 `.bak-20261112-post-edge-drag/`。
+- **另一台机器**：Syncthing 会同步本目录。把 `release-1.2.1/` 里的 4 个文件（`main.js` / `manifest.json` / `versions.json` / `styles.css`）复制到该机 `.obsidian/plugins/canvas-mindmap-keyboard/` 即可（**保留自己的 `data.json`**）；也可在该机跑 `node patch_edge_drag.cjs --apply`，再手动把 `manifest.json` 升到 1.2.1、`versions.json` 补条目。
 
 ---
 
